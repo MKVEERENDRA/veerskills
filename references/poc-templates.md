@@ -17,7 +17,7 @@ import "forge-std/console.sol";
 
 contract BasePoCTest is Test {
     // Fork configuration
-    string constant RPC_URL = "RPC_URL"; // Set in .env or foundry.toml
+    string constant RPC_URL = "RPC_URL"; // Configure via environment or foundry.toml
     uint256 fork;
 
     // Actors
@@ -27,7 +27,7 @@ contract BasePoCTest is Test {
 
     function setUp() public virtual {
         // Option A: Fork mainnet
-        // fork = vm.createSelectFork(vm.envString(RPC_URL));
+        // fork = vm.createSelectFork(vm.envString(RPC_URL)); // Load from environment configuration
 
         // Option B: Local deployment
         // Deploy contracts here

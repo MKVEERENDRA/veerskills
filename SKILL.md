@@ -891,108 +891,23 @@ Present the System Map including detected protocol type and loaded route. Ask: *
 
 ## Phase 3: HUNT — Systematic Hotspot Identification
 
+> **Full details**: See `references/phase-3-hunt.md` for complete HUNT phase methodology.
+
 **Step 3.0: Load protocol-specific checklist.** Read `{resolved_path}/references/protocol-checklists.md` and load the section matching the detected protocol type. ALWAYS also load the Solcurity and Secureum sections.
 
-### 3.A — Vector Triage Pass *(280+ vectors from attack-vectors.md — UPGRADED with Pashov's 3-tier system)*
-For each of the 280+ attack vectors assigned to the agent:
+**HUNT Phase Summary**:
+- **3.A — Vector Triage Pass**: Classify 280+ vectors using Skip/Borderline/Survive
+- **3.B — Grep-Scan Pass**: Fast codebase-wide pattern scan
+- **3.C — Anti-Pattern Scan**: Check against anti-patterns.md
+- **3.D — Function-Level Analysis**: Master checklist sweep (~219 checks)
+- **3.E — Variant Analysis**: Abstraction ladder + 5 variant dimensions
+- **3.F — Attack Chain Detection**: Multi-step exploit detection
+- **3.G — Reverse Impact Hunt**: Backward-from-impact search
+- **3.H — Data Flow Graph**: State mutation tracking
+- **3.I — Boundary Value Injection**: Edge-case bug detection
+- **3.J — Multi-Expert Analysis**: Three separate expert rounds
 
-**Triage**: Classify into three tiers using **Skip/Borderline/Survive** classification:
-- **Skip** — the named construct AND underlying concept are both absent (e.g., ERC721 vectors when no NFTs exist)
-- **Borderline** — the named construct is absent but the underlying vulnerability concept could manifest through a different mechanism. Promote only if you can (a) name the specific function where the concept manifests AND (b) describe in one sentence how the exploit works; otherwise drop.
-- **Survive** — the construct or pattern is clearly present
-
-Output triage:
-```
-Skip: V2, V19, V61, ...
-Borderline: V44 (similar caching in getReserves()), V78 (returndatasize in proxy fallback)
-Survive: V9, V52, V73, ...
-Total: {N} classified
-```
-
-**Deep pass**: Only for surviving vectors using structured one-liner format:
-```
-V52: path: deposit() → _transfer() → transferFrom | guard: none | verdict: CONFIRM [85]
-V73: path: deposit() → transferFrom | guard: balance-before-after present | verdict: DROP (FP gate 3: guarded)
-```
-Budget: ≤1 line per dropped vector, ≤3 lines per confirmed vector.
-
-### 3.B — Grep-Scan Pass *(original VeerSkills methodology)*
-Before function-level analysis, run fast codebase-wide pattern scan:
-
-**Syntactic Grep**: Search for high-risk patterns:
-```bash
-# Reentrancy signals
-grep -rn "\.call{" --include="*.sol" | grep -v test
-grep -rn "transferFrom\|safeTransferFrom" --include="*.sol" | grep -v test
-# Oracle/price signals
-grep -rn "latestRoundData\|getPrice\|slot0\|getReserves" --include="*.sol"
-# Access control gaps
-grep -rn "function.*external\|function.*public" --include="*.sol" | grep -v "onlyOwner\|onlyRole\|onlyAdmin\|modifier"
-# Dangerous patterns
-grep -rn "delegatecall\|selfdestruct\|tx.origin\|abi.encodePacked" --include="*.sol"
-grep -rn "unchecked" --include="*.sol" | grep -v test
-```
-
-**Semantic Sweep**: Read for non-greppable vulnerabilities:
-- Business logic flaws (incorrect state transitions, missing edge cases)
-- Economic attacks (incentive misalignment, free options, value extraction)
-- Cross-contract state coupling (shared variables, view reentrancy)
-- Missing validation (zero amounts, empty arrays, max values)
-
-### 3.C — Anti-Pattern Scan *(from anti-patterns.md)*
-Scan the codebase against ALL anti-patterns from `references/anti-patterns.md`:
-- Match each anti-pattern's ❌ WRONG pattern against the code
-- For each match: check if the ✅ RIGHT pattern is used instead
-- If wrong pattern matched and right pattern not present → flag as suspect
-
-### 3.D — Function-Level Analysis
-For each public/external function that writes state, moves value, or makes external calls:
-
-1. **Master Checklist Sweep**: All 25 sections of `references/master-checklist.md` (~219 checks)
-2. **Static Analysis Check**: Review Slither/Aderyn results for this function
-3. **Cyfrin Category Drill**: Call `mcp__sc-auditor__get_checklist` with `{category: "<relevant>"}`
-4. **Protocol-Specific Checklist**: Sweep items from `references/protocol-checklists.md`
-5. **Protocol Route Checks**: Sweep the Required Checks and Critical Path vectors from `references/protocol-routes.md`
-6. **Real-World Correlation**: Call `mcp__claudit__search_findings` with relevant keywords
-7. **Invariant Check**: Can this function violate any invariant from Phase 2?
-8. **Vulnerability Matrix Sweep**: All classes × checks from `references/vulnerability-matrix.md`
-
-### 3.E — Variant Analysis *(from WEB3-AUDIT-SKILLS)*
-For EVERY confirmed suspicious spot, systematically hunt for ALL variants:
-
-**Abstraction Ladder** — abstract each finding to Level 2-3:
-```
-Level 0 (Specific):   "withdraw() doesn't check transfer return"
-Level 1 (Function):   "unchecked return on token transfer"
-Level 2 (Category):   "unchecked external call return value" ← SEARCH HERE
-Level 3 (Root Cause):  "missing validation of external result"
-```
-
-**5 Variant Dimensions**:
-1. **Same function, different contracts** → grep the signature across codebase
-2. **Same root cause, different functions** → grep the anti-pattern in ALL functions
-3. **Same pattern, different manifestation** → trace data flow for equivalent logic
-4. **Cross-contract variants** → check all modules for same missing guard
-5. **Cross-protocol variants** → call `mcp__claudit__search_findings` with root cause
-
-### 3.F — Attack Chain Detection *(from WEB3-AUDIT-SKILLS — UPGRADED)*
-Detect multi-step exploits where individual steps appear benign:
-
-**Chain Types** (inspired by real exploits):
-- **Flash Loan Chain**: Flash loan → price/governance manipulation → value extraction (Beanstalk $182M)
-- **Oracle Chain**: Oracle distortion → under-collateralized borrow → drain (Cream $130M)
-- **Bridge Chain**: Signature bypass → fake proof → unauthorized mint (Wormhole $326M)
-- **Governance Chain**: Vote acquisition → proposal → execution (Beanstalk $182M)
-- **Permit2 Chain** *(NEW)*: Approve permit2 → allowance inheritance → third-party protocol drains via inherited allowance
-- **Hook Chain** *(NEW)*: V4-style hook → state manipulation in `beforeSwap` → `afterSwap` reads stale state → profit extraction
-- **Composability Chain** *(NEW)*: Protocol A calls B calls C → state inconsistency at A when C reverts/pauses/returns unexpected data
-- **ERC4626 Inflation Chain** *(NEW)*: Donate tokens → inflate share price → front-run depositor → withdraw inflated amount
-- **Self-Liquidation Chain** *(NEW)*: Manipulate oracle → bring own position underwater → liquidate self from 2nd address → collect bonus
-
-**Detection**: For each finding, ask: "Can this be STEP 1 of a multi-step exploit?" Trace forward through all reachable state changes. Check if combining 2-3 'medium' findings creates a 'critical' chain.
-
-For each suspicious spot, output:
-<output_format>
+**Output Format**:
 ```
 [HUNT-{N}] {One-line summary}
 ├── Components: {contracts + functions}
@@ -1004,281 +919,25 @@ For each suspicious spot, output:
 ├── Chain: {standalone | step in chain [chain-id]}
 └── Priority: {Critical / High / Medium / Low}
 ```
-</output_format>
 
-### 3.G — Reverse Impact Hunt *(NEW — backward-from-impact search)*
+For detailed methodology on all HUNT sub-phases (3.B through 3.J), see `references/phase-3-hunt.md`.
 
-**Core Insight**: Standard vector scanning works FORWARD (pattern → bug?). Many critical bugs are only found by working BACKWARD (catastrophic outcome → what path reaches it?).
+### 3.A — Vector Triage Pass *(280+ vectors from attack-vectors.md — UPGRADED with Pashov's 3-tier system)*
+For each of the 280+ attack vectors assigned to the agent:
 
-**MANDATORY for deep/beast modes. Recommended for standard.**
+**Triage**: Classify into three tiers using **Skip/Borderline/Survive** classification:
+- **Skip** — the named construct AND underlying concept are both absent
+- **Borderline** — the named construct is absent but the underlying vulnerability concept could manifest through a different mechanism
+- **Survive** — the construct or pattern is clearly present
 
-Enumerate ALL catastrophic outcomes for this protocol type, then trace backward:
-
-| Impact Category | Specific Outcomes to Trace Backward From |
-|---|---|
-| **Fund Drain** | `token.transfer(attacker, ...)` where amount > attacker's deposit |
-| **Unbacked Minting** | `_mint(attacker, shares)` without proportional asset deposit |
-| **Liquidation Bypass** | `healthFactor >= 1` returns true when position is actually underwater |
-| **Share Price Manipulation** | `totalAssets / totalSupply` returning attacker-controlled value |
-| **Access Control Bypass** | `onlyOwner` function callable without owner being `msg.sender` |
-| **Permanent Lock** | `withdraw()` always reverting for a legitimate depositor |
-| **Oracle Corruption** | `getPrice()` returning attacker-manipulable value |
-
-**For each outcome:**
-1. Identify ALL functions that could produce this outcome
-2. Trace backward: what input values and state conditions make this function produce the catastrophic result?
-3. Can an attacker arrange those conditions? (via flash loan, front-running, governance, direct call)
-4. If yes → flag as `[REVERSE-{N}]` with the full backward trace
-
-<output_format>
-```
-[REVERSE-{N}] {Catastrophic outcome} achievable via {path}
-├── Outcome: {e.g., "attacker extracts 2x their deposit"}
-├── Terminal Function: {file.sol:L142 — _mint(attacker, inflatedShares)}
-├── Backward Trace: _mint ← deposit() ← [no totalSupply check when totalSupply == 0]
-├── Attacker Setup: First depositor deposits 1 wei, donates 1e18 directly
-├── Invariant Broken: {E1: No Free Lunch}
-└── Priority: {Critical / High}
-```
-</output_format>
-
-### 3.H — Data Flow Graph + State Mutation Tracker *(NEW)*
-
-**MANDATORY for deep/beast modes.**
-
-Build a machine-readable data flow graph for the entire codebase:
-
-**Step 3.H.1: State Variable Census**
-For every state variable, create:
-```
-| Variable | Readers (functions) | Writers (functions) | External Deps |
-|----------|--------------------|--------------------|---------------|
-| totalSupply | balanceOf, deposit, withdraw, getSharePrice | deposit, withdraw, _mint, _burn | None |
-| totalAssets | deposit, withdraw, getSharePrice, harvest | deposit, withdraw, harvest | strategy.totalValue() |
-```
-
-**Step 3.H.2: Orphan Detection**
-- **Orphan Writes**: State written but never read → dead code or missing validation
-- **Orphan Reads**: State read but never written (beyond initialization) → constant or misconfiguration
-- **Write-Without-Guard**: State written without prior validation (`require`) → potential corruption
-
-**Step 3.H.3: Stale Read Detection**
-For every function that reads state AND makes an external call:
-1. Does any other function modify the same state?
-2. Can the external call trigger a callback that calls that other function?
-3. If yes → state read is STALE during callback window → flag as `[STALE-{N}]`
-
-**Step 3.H.4: Cross-Function Write Conflict**
-For every state variable written by 2+ functions:
-1. Can they execute concurrently in the same transaction? (via reentrancy)
-2. Do they assume the variable hasn't changed since their read?
-3. If yes → flag as `[CONFLICT-{N}]`
-
-Log the full data flow graph in `audit-debug.md`.
-
-### 3.I — Boundary Value Injection Protocol *(NEW)*
-
-**MANDATORY for all modes.** Catches edge-case bugs that pattern matching misses.
-
-For every arithmetic operation, comparison, or state transition in critical functions, mentally inject these values and trace the result:
-
-| Category | Values to Inject | What Breaks |
-|----------|-----------------|-------------|
-| **Zero** | `0`, `address(0)`, empty bytes `""`, empty array `[]` | Division by zero, zero-amount transfers, null recipients |
-| **One** | `1`, `1 wei` | Rounding to zero, dust positions, minimum viable exploit |
-| **Max** | `type(uint256).max`, `type(int256).max`, `type(int256).min` | Overflow in unchecked, truncation on downcast |
-| **Boundary** | `type(uint128).max`, `2**255`, `10**18 - 1` | Edge of safe arithmetic regions |
-| **First/Last** | First deposit (`totalSupply == 0`), last withdrawal (`totalSupply → 0`) | Division by zero, inflation attacks, empty pool |
-| **Self-Reference** | `msg.sender == address(this)`, `from == to`, `tokenA == tokenB` | Self-transfer, self-liquidation, pool with same token |
-| **Array Edge** | Single element `[x]`, max elements, duplicate elements | Off-by-one, duplicate processing, gas limit |
-
-**For each injection that produces an unexpected result:**
-<output_format>
-```
-[BOUNDARY-{N}] {function}({injected_value}) → {unexpected_result}
-├── Input: {specific value injected}
-├── Expected: {what should happen}
-├── Actual: {what code does — trace through}
-├── Exploitable: {yes/no + how attacker triggers this}
-└── Priority: {Critical / High / Medium / Low}
-```
-</output_format>
-
-### 3.J — Multi-Expert Analysis Rounds *(NEW — from Forefy — standard+ modes)*
-
-**MANDATORY for standard/deep/beast modes.** Applies THREE SEPARATE ANALYSIS ROUNDS with completely different personas. Each expert analyzes independently — NO cross-referencing between experts during their analysis.
-
-**EXECUTION INSTRUCTION**: You must perform THREE SEPARATE ANALYSIS ROUNDS, adopting a completely different persona and approach for each expert. Do not blend their perspectives — maintain strict separation between each expert's analysis.
-
-#### ROUND 1: Security Expert 1 Analysis
-**PERSONA**: Primary Smart Contract Auditor  
-**MINDSET**: Systematic, methodical, focused on core vulnerabilities
-
-**ANALYSIS APPROACH**:
-1. **SYSTEMATIC CODE REVIEW**:
-   - Start with highest-risk functions (payable, external calls, admin functions)
-   - Map all fund flow paths and state changes
-   - Analyze external dependencies and oracle integrations
-   - Document findings with precise business impact context
-
-2. **VULNERABILITY PATTERN MATCHING**:
-   - Check for reentrancy vulnerabilities (all variants)
-   - Validate access control mechanisms and permissions
-   - Analyze arithmetic operations for precision/overflow issues
-   - Review external call safety and return value handling
-
-**OUTPUT REQUIREMENT**: Complete your full analysis as Expert 1, document all findings, then explicitly state: "--- END OF EXPERT 1 ANALYSIS ---"
-
-#### ROUND 2: Security Expert 2 Analysis
-**PERSONA**: Secondary Smart Contract Auditor  
-**MINDSET**: Fresh perspective, economic focus, integration specialist  
-**CRITICAL**: Do NOT reference or build upon Expert 1's findings. Approach as if you've never seen their analysis.
-
-**ANALYSIS APPROACH**:
-1. **INDEPENDENT PROTOCOL ANALYSIS**:
-   - Fresh review of all smart contract components
-   - Different perspective on economic attack vectors
-   - Alternative vulnerability assessment methodologies
-   - Cross-validation of tokenomics and governance mechanisms
-
-2. **INTEGRATION SECURITY FOCUS**:
-   - Inter-contract communication security
-   - External protocol integration risks
-   - Composability and flash loan attack scenarios
-   - Long-term protocol sustainability and upgrade risks
-
-**OUTPUT REQUIREMENT**: Complete your independent analysis as Expert 2, then provide oversight analysis of Expert 1's findings and explicitly state: "--- END OF EXPERT 2 ANALYSIS ---"
-
-**OVERSIGHT ANALYSIS RESPONSIBILITY**:  
-After completing your independent analysis, review Expert 1's findings and provide honest self-reflection:
-- Do you disagree that it's a valid vulnerability? Explain your reasoning
-- Did you miss it due to different analysis focus or methodology?
-- Was it an oversight in your systematic review process?
-- Would you have caught it with more time or different approach?
-
-#### ROUND 3: Triager Validation
-**PERSONA**: Customer Validation Expert (Budget Protector)  
-**MINDSET**: Financially motivated skeptic who must protect the security budget  
-**APPROACH**: Actively challenge and attempt to disprove BOTH Expert 1 and Expert 2 findings
-
-**ENHANCED TRIAGER MANDATE**:
-```markdown
-You represent the PROTOCOL TEAM who controls the bounty budget and CANNOT AFFORD to pay for invalid findings.
-Your job is to PROTECT THE BUDGET by challenging every finding from Security Experts 1 and 2.
-You are FINANCIALLY INCENTIVIZED to reject findings — every dollar saved on false positives is money well spent.
-You must be absolutely certain a finding is genuinely exploitable before recommending any bounty payment.
-
-MANDATORY CROSS-REFERENCE VALIDATION:
-□ Finding Consistency Check: Compare all findings for logical contradictions or overlapping issues
-□ Evidence Chain Validation: Verify each finding's evidence chain (Code Pattern → Vulnerability → Impact → Risk)
-□ Contract Location Verification: Confirm all referenced contracts, functions, and line numbers exist and are accurate
-□ Attack Path Cross-Check: Ensure attack scenarios don't contradict protocol protections found in other areas
-□ Severity Calibration Review: Check if severity levels are consistent across similar finding types
-□ Economic Impact Validation: Verify economic attack scenarios are realistic and profitable
-
-BUDGET-PROTECTION VALIDATION:
-□ Technical Disproof: Actively test the finding to prove it's NOT exploitable in practice
-□ Economic Disproof: Calculate realistic attack costs vs profits to show it's unprofitable
-□ Evidence Challenges: Identify flawed assumptions and test alternative scenarios
-□ Exploitability Testing: Try to reproduce the attack and document where it fails
-□ False Positive Detection: Find protocol protections or mitigations that prevent exploitation
-□ Production Reality Check: Test how actual deployment conditions invalidate the finding
-
-Your default stance is BUDGET PROTECTION — only pay bounties for undeniably valid, exploitable vulnerabilities.
-```
-
-**ENHANCED TRIAGER VALIDATION FOR EACH FINDING**:
-
-```markdown
-### Triager Validation Notes
-
-**Cross-Reference Analysis**:
-- Checked finding against all other discoveries for consistency
-- Verified no contradictory evidence exists in other analyzed contracts
-- Confirmed attack path doesn't conflict with protocol protections found elsewhere
-- Validated severity level matches similar findings in this audit
-
-**Economic Feasibility Check**:
-- Calculated realistic attack costs (gas fees, capital requirements, time investment)
-- Analyzed profit potential vs. risk and complexity
-- Evaluated if attack is economically rational for attackers
-
-**Technical Verification**:
-- Actively tested the vulnerability by attempting reproduction with provided steps
-- Performed technical disproof attempts: [specific tests run to invalidate the finding]
-- Verified contract locations and challenged technical feasibility through direct testing
-- Calculated realistic economic scenarios to disprove profitability claims
-
-**Evidence Chain Validation**:
-[Document the complete evidence chain and validate each link:
-- Code Pattern Observed: [Specific smart contract code pattern]
-- Vulnerability Type: [How pattern leads to security weakness]
-- Attack Vector: [How an attacker would exploit this]
-- Business Impact: [Real-world consequences for protocol and users]
-- Risk Assessment: [Why this matters to the protocol team]]
-
-**Protocol Context Validation**:
-[Specific technical challenges raised against this finding:
-- Contract function calls tested and results
-- Economic scenarios simulated and actual outcomes
-- Integration tests performed and discrepancies found
-- External dependency checks and potential mitigating factors]
-
-**Dismissal Assessment**:
-- **DISMISSED**: Finding is invalid because [specific technical reasons proving it's not exploitable]
-- **QUESTIONABLE**: Technical issue may exist but [specific concerns about practical exploitability/economic viability]
-- **RELUCTANTLY VALID**: Finding is technically sound despite [attempts to dismiss - specific validation evidence]
-
-**Economic Recommendation**:
-[Harsh economic critique: Why this finding should be deprioritized or dismissed, focusing on unrealistic economic assumptions, impractical attack scenarios, or misunderstanding of protocol economics]
-
-**Technical Recommendation**:
-[Harsh technical critique: Why this finding should be deprioritized or dismissed, focusing on technical inaccuracies, impractical scenarios, or misunderstanding of protocol mechanics]
-```
-
-**OUTPUT REQUIREMENT**: Complete triager validation for ALL findings from Experts 1 and 2, then explicitly state: "--- END OF TRIAGER VALIDATION ---"
+**Deep pass**: Only for surviving vectors using structured one-liner format. See `references/phase-3-hunt.md` for complete methodology.
 
 ### CHECKPOINT
 Present numbered list of ALL findings from 3.A through 3.J. Ask: *"Select targets for ATTACK phase (numbers, 'all', or 'high-only')."*
 
-## Phase 3.5: INVENTORY — Findings Deduplication & Depth Assignment *(NEW — from Plamen's breadth→inventory→depth pipeline)*
-
-**MANDATORY for standard/deep/beast modes.** This phase prevents duplicate analysis and ensures coverage completeness.
-
-### 3.5.1 Deduplication by Root Cause
-Read ALL agent finding outputs from Phase 3. Group findings by **root cause** (not by symptom):
-- Same missing guard in two functions = 1 root cause, 2 manifestations
-- Same state variable coupling issue found by Agent 1 and Agent 3 = 1 root cause (keep higher-confidence version)
-- Same vector ID triggered by different agents on same code = merge, boost confidence +0.10
-
-### 3.5.2 Depth Specialist Assignment
-Assign each deduplicated finding to the most appropriate depth analysis role:
-
-| Finding Pattern | Assigned Depth Role | Why |
-|-----------------|--------------------|----|
-| State mutation, constraint enforcement, coupled variables | **State Trace Specialist** | Needs complete state graph + cross-function consistency check |
-| Token flow, balance tracking, fee-on-transfer, arithmetic precision | **Token Flow Specialist** | Needs balance-before/after trace + rounding analysis |
-| Boundary values, first/last depositor, zero-state, edge cases | **Edge Case Specialist** | Needs dual-trace with realistic AND adversarial values |
-| Cross-contract calls, oracle deps, composability, external trust | **External Specialist** | Needs full cross-contract trace + dependency analysis |
-
-### 3.5.3 Coverage Gap Detection
-Compare the set of functions analyzed by ALL agents against the complete function list from Phase 2.1:
-- **Covered**: Function analyzed by ≥1 agent → no action
-- **Partially covered**: Function's state writes analyzed but external calls not traced → assign to depth
-- **Uncovered**: Function not analyzed by ANY agent → **MANDATORY** assignment to depth specialist
-
-Produce `findings_inventory.md`:
-```markdown
-## Findings Inventory
-| ID | Root Cause | Manifestations | Assigned Depth | Confidence (Pre-Depth) | Evidence Tags |
-|    |            |                |                |                        |               |
-
-## Coverage Gaps
-| Function | Contract | Risk Level | Assigned To | Reason Uncovered |
-|          |          |            |             |                  |
-```
-
 ## Phase 4: ATTACK — Deep Exploit Validation
+
+> **Full details**: See `references/phase-4-attack.md` for complete ATTACK phase methodology.
 
 For each selected target, one at a time:
 
@@ -1293,353 +952,29 @@ Read actual code. Trace variable values through execution. Map every external ca
 - **Capital required**: Flash loan size, gas cost, timing constraints
 
 ### 4.3 Full 6-Check FP Gate — Deep Enforcement (MANDATORY)
-Apply all 6 checks from `references/fp-gate.md` with **mandatory evidence artifacts and depth validation**:
-1. **Concrete path** (4+ hops): Trace caller → function → state change → impact. Each hop must cite exact `file:line`. Impact quantified in units.
-2. **Reachable** (grep-verified): Execute `grep -n "modifier\|onlyOwner\|onlyRole\|require(msg.sender"` on affected file and paste output. No grep = FAIL.
-3. **No guard** (8-point sweep): Search ALL 8 guard categories (reentrancy lock, CEI pattern, SafeERC20, allowance/balance, input validation, compiler version, library protections, inherited protections). Log each with grep command + result count.
-4. **Cross-file** (3+ file reads): Read ≥3 files beyond affected file. Grep function name across entire codebase. Trace full inheritance chain. List every file read.
-5. **Dry-run** (dual trace): Perform TWO traces — realistic values AND adversarial edge cases (0, max_uint, 1 wei). Each trace must show ≥5 state checkpoints with variable values at each step.
-6. **Solodit check** (mandatory tool call): Execute ≥2 `mcp__claudit__search_findings` queries (root cause pattern + impact pattern). Review ≥5 results. Address any matching invalidated findings.
-
-**Anti-Rubber-Stamp Rule**: Any check with PASS evidence under 80 characters → entire gate FAILS. One-sentence passes are skips, not verification.
-
-**Adversarial Meta-Check** (after all 6 pass): Write ≥3 sentences attempting to invalidate the finding as a skeptical judge. Rebut each with evidence from checks 1-6. If any rebuttal fails → DROP.
-
-**Evidence Depth Validation**: Before finalizing, verify each check's evidence against the Evidence Depth Summary Table in `fp-gate.md`. Any check below minimum → finding moved to "Below Confidence Threshold".
-
-Calculate confidence score with all applicable deductions. If score < 40 → DROP.
-
-### 4.4 Adversarial Verification *(UPGRADED — from exvul methodology with isolated per-finding review)*
-For each surviving finding, apply formal adversarial review with **mandatory isolation**:
-
-**Core Stance (MANDATORY)**: "This is likely a false positive unless local evidence proves exploitability."
-
-**Isolation Constraints (MANDATORY)**:  
-Each finding must be verified by a fresh reviewer instance with NO carry-over context.
-
-**Allowed input per finding**:
-1. Finding payload (title, description, severity, attack path)
-2. Local code excerpt around `file:line` (±20 lines of context)
-
-**Disallowed**:
-- Cross-finding memory (cannot reference other findings)
-- Global conclusions imported from previous decisions
-- Optimistic assumptions without direct local evidence
-
-**Required Decision Schema**:
-```json
-{
-  "decision": "false_positive | valid | valid_downgraded",
-  "downgraded_severity": "Critical|High|Medium|Low|Informational|",
-  "confidence": 0.0,
-  "confidence_basis": "what evidence made confidence high/medium/low",
-  "explanation": "short technical rationale"
-}
-```
-
-**Confidence Rule**:  
-Do not reuse fixed defaults. Set confidence from evidence quality:
-- Exploit path complete + strong local proof → higher confidence (0.7-1.0)
-- Missing preconditions or uncertain control flow → lower confidence (0.3-0.6)
-- Speculative or requires extensive assumptions → very low confidence (0.0-0.2)
-
-**Decision Application**:
-- `false_positive`: Remove from final findings
-- `valid`: Keep unchanged
-- `valid_downgraded`: Keep with lower severity and explicit severity transition
-
-**Output Format**:
-```
-[ADVERSARIAL-{N}] {Finding ID}
-├── Decision: {false_positive | valid | valid_downgraded}
-├── Original Severity: {Critical|High|Medium|Low}
-├── Final Severity: {Critical|High|Medium|Low}
-├── Confidence: {0.0-1.0}
-├── Confidence Basis: {what evidence made confidence high/medium/low}
-└── Explanation: {short technical rationale}
-```
-
-**Mandatory Summary**:
-```
-ADVERSARIAL VERIFICATION SUMMARY:
-├── Valid: {N}
-├── Valid Downgraded: {N}
-├── False Positive Dropped: {N}
-└── Total Reviewed: {N}
-```
-
-### 4.5 Economic Triager Validation *(NEW — from Forefy)*
-For each surviving finding, apply **budget-conscious triager** that actively tries to disprove:
-
-**Default stance**: "This finding is likely invalid. Prove otherwise."
-
-**4 Triager Checks** (each must pass or finding is downgraded/dismissed):
-
-1. **Technical Disproof Attempt**: Actively try to prove the finding is NOT exploitable
-   - Test the attack path with concrete values
-   - Check if protocol protections exist that initial analysis missed
-   - Verify contract locations and line numbers are accurate
-   - Log result in `audit-debug.md`
-
-2. **Economic Feasibility Check**: Calculate realistic attack economics
-   - Gas cost of the attack at current gas prices
-   - Flash loan fees required (typically 0.09% on Aave)
-   - Capital requirements and opportunity cost
-   - Sandwich/MEV profitability threshold
-   - Is the attack **economically rational** for a real attacker?
-   - Log calculation in `audit-debug.md`: `[TRIAGER] {finding-id}: gas=$X, flash_loan_fee=$Y, profit=$Z → rational/irrational`
-
-3. **Evidence Chain Validation**: Every link must be verified
-   ```
-   Code Pattern Observed → Vulnerability Type → Attack Vector → Business Impact → Risk Assessment
-   ```
-   Missing link = finding is downgraded.
-
-4. **Cross-Finding Consistency**: Check all findings for logical contradictions
-   - Does Finding A's exploit assume a protection that Finding B says is missing?
-   - Are severity levels consistent across similar finding types?
-
-**Triager Verdict Classification**:
-| Verdict | Criteria | Action |
-|---|---|---|
-| **VALID** | Cannot be disproved. Economically rational. Full evidence chain. | Keep with severity |
-| **QUESTIONABLE** | Technical issue exists but economic viability unclear. | Mark for additional proof |
-| **OVERCLASSIFIED** | Valid but severity exaggerated. | Downgrade severity |
-| **DISMISSED** | Disproved technically or economically. | Remove with documented reasoning |
-
-### 4.6 Severity Formula *(from Forefy — conservative)*
-Apply quantitative severity scoring:
-```
-Base Score = Impact × Likelihood × Exploitability
-Final Score = Base Score (if borderline, round DOWN)
-```
-
-| Factor | Score 3 (High) | Score 2 (Medium) | Score 1 (Low) |
-|---|---|---|---|
-| **Impact** | Complete compromise, TVL >$1M at risk | Significant loss >$100k, major disruption | Limited loss <$100k, minor impact |
-| **Likelihood** | In core user flows, easily discoverable | Requires moderate knowledge + specific conditions | Requires expert knowledge + perfect timing |
-| **Exploitability** | Single tx, flash-loan enabled, guaranteed profit | Multi-tx, requires capital, timing dependent | Requires governance, extensive setup |
-
-| Score Range | Severity |
-|---|---|
-| 18-27 | CRITICAL |
-| 8-17 | HIGH |
-| 4-7 | MEDIUM |
-| 1-3 | LOW |
-
-**Conservative rule**: When uncertain between two severity levels, ALWAYS choose the LOWER one.
-
-### 4.7 Verdict
-
-**NO VULNERABILITY**: Document refutation steps, specific constraints preventing exploit, confidence level.
-
-**VULNERABILITY CONFIRMED**: Produce finding in output format, then proceed to Phase 4.8 for iterative depth.
-
-### 4.8 Iterative Depth Loop with Anti-Dilution *(NEW — from Plamen's adaptive depth architecture)*
-
-**MANDATORY for deep/beast modes. Recommended for standard.**
-
-After Phase 4 initial analysis completes, run iterative depth to catch what confirmation bias prevented in the first pass.
-
-#### Iteration Model
-- **Iteration 1**: Full coverage depth analysis (already completed in Phase 4.1-4.7)
-- **Iteration 2**: Targeted Devil's Advocate re-analysis of UNCERTAIN findings (composite score 0.40-0.69)
-- **Iteration 3**: Final targeted pass if ANY uncertain finding remains at Medium+ severity
-- **Hard cap**: Maximum 3 iterations total
-
-#### Convergence Criteria
-1. **Zero uncertain**: If 0 findings score < 0.70 after any iteration → exit loop
-2. **No progress**: If NO finding's confidence improved in an iteration → exit loop early
-3. **Iteration 2 skip policy**: May ONLY be skipped if ALL uncertain findings are Low/Info severity. If ANY uncertain finding is Medium+ → iteration 2 is **MANDATORY**
-4. **Forced CONTESTED**: After all iterations, any finding still < 0.40 → forced to CONTESTED verdict
-
-#### Anti-Dilution Rules *(from Plamen — prevents reasoning contamination between iterations)*
-
-**Rule AD-1: Evidence-Only Carryover**
-Between iterations, carry forward ONLY:
-- Finding ID, title, location, evidence code references (file:line)
-- Evidence source tags (`[CODE]`, `[PROD-ONCHAIN]`, etc.)
-- Current confidence score
-- A focused investigation question
-- **Analysis path summary** (1-2 sentences): What the previous agent analyzed and HOW it reasoned — NOT what it concluded. Example: *"Iteration 1 traced numerator manipulation via supply inflation; did not explore divisor staleness or timestamp anchor."*
-
-**Explicitly excluded**: All prior verdicts, confidence assessments, and cross-references.
-
-**Rule AD-2: Hard Devil's Advocate Role**
-Iteration 2+ agents receive this STRUCTURAL adversarial framing (research shows soft "think critically" instructions produce <50% divergence; hard DA role produces >99%):
-
-> *"You are the Devil's Advocate Depth Agent. Your PRIMARY job is to find what the previous analysis MISSED — not to re-confirm what it found. For each finding you investigate:*
-> *1. Read the analysis path summary (what was explored). Your job is to explore what was NOT.*
-> *2. For each CONFIRMED conclusion: ask 'what adjacent bug does this analysis OBSCURE?'*
-> *3. For each REFUTED conclusion: ask 'what enabler makes this exploitable after all?'*
-> *4. You MUST produce at least one finding or observation that CONTRADICTS or EXTENDS the previous analysis."*
-
-**Rule AD-3: Focused Input Cap**
-Each iteration 2+ agent receives at most **5 uncertain findings** in its domain. Prioritize by lowest confidence score.
-
-**Rule AD-4: Fresh Tool Calls Mandatory**
-Iteration 2+ agents MUST make their own MCP tool calls (`mcp__claudit__search_findings`, `mcp__sc-auditor__run-slither`) rather than relying on summaries from iteration 1.
-
-**Rule AD-5: New-Evidence-Only Re-Scoring**
-Re-scoring after iteration 2+ only upgrades confidence if the agent produced **NEW evidence** — a new code reference, a new MCP tool output, or a new production verification result. Merely restating the same analysis = zero confidence change.
-
-#### Finding Card Format for Iteration 2+
-```markdown
-## Finding [XX-N]: Title
-- **Location**: SourceFile:L45-L67
-- **Evidence**: [CODE] — validation check at L45; [CODE] — state update at L52
-- **Confidence**: 0.42
-- **Evidence Gap**: [What specific evidence is missing]
-- **Prior Path**: [1-2 sentence analysis path summary — what was explored, not concluded]
-- **Investigate**: [Focused question for the DA agent]
-```
-
-## Phase 4.85: SEMANTIC INVARIANT DUAL-PASS *(NEW — from Plamen's semantic invariant architecture)*
-
-**MANDATORY for deep/beast modes. Skip for light/quick/standard.**
-
-This phase is distinct from the invariant framework defined in Phase 2.3. Phase 2.3 categorizes invariants (Safety, Liveness, Economic, Composability). This phase **exhaustively traces** each invariant across ALL code paths to prove or disprove preservation.
-
-### Pass 1: Invariant Extraction
-Extract ALL invariants from:
-- **Code**: require/assert statements, comments mentioning "should always", "must never", "invariant"
-- **Documentation**: Protocol docs, README, specification files
-- **Economic**: Token supply conservation, exchange rate monotonicity, fee collection completeness
-- **Structural**: Storage layout assumptions, initialization completeness, access control hierarchy
-- **Phase 2.3 categories**: Expand each Safety/Liveness/Economic/Composability category into concrete testable properties
-
-For each invariant, produce:
-```
-[SEMANTIC-INV-{N}] {Invariant statement}
-├── Source: {code comment / documentation / economic property}
-├── Variables: {state variables involved}
-├── Functions: {all functions that could violate}
-└── Category: {Safety / Liveness / Economic / Composability}
-```
-
-### Pass 2: Recursive Trace (MANDATORY)
-For EACH invariant from Pass 1, perform a **recursive function trace**:
-
-1. **List ALL functions** that read or write ANY variable in the invariant
-2. **For EACH function**:
-   a. Pre-condition: Is the invariant guaranteed true at function entry?
-   b. Body: Does the function maintain the invariant through ALL execution paths (including reverts, early returns, and reentrancy windows)?
-   c. Post-condition: Is the invariant guaranteed true at function exit?
-   d. Mid-execution window: Is there a window between external calls where the invariant is temporarily broken AND an external observer could exploit this?
-3. **Cross-function analysis**: Can a sequence of 2-3 function calls break the invariant even if each individual call preserves it?
-4. **State transition completeness**: For symmetric operations (deposit/withdraw, mint/burn), verify ALL state fields modified in the positive branch are also modified in the negative branch
-
-**For each violation found:**
-```
-[SEMANTIC-VIOLATION-{N}] Invariant {INV-ID} broken by {function}
-├── Invariant: {invariant statement}
-├── Violation Path: {function call sequence}
-├── Temporary Window: {yes/no — duration if yes}
-├── Exploitable: {yes/no — how attacker triggers}
-└── Priority: {Critical / High / Medium / Low}
-```
-
-All violations feed into the FP Gate (Phase 4.3) for validation before inclusion in the report.
-
-## Phase 4.9: SKEPTIC-JUDGE — Independent Adversarial Agent *(NEW — from Plamen/OmniGuard)*
-
-**MANDATORY for standard+ modes.** This is a COMPLETELY INDEPENDENT adversarial agent that receives findings AFTER the triager validation (Phase 4.5) and attempts to destroy them from a purely technical standpoint.
-
-### Why This Exists (Separation of Concerns)
-- **Phase 4.3 (FP Gate)**: Checks performed by the SAME agent that found the bug → confirmation bias risk
-- **Phase 4.4 (Adversarial Verification)**: Isolation-constrained review but still within the orchestrator's context
-- **Phase 4.5 (Economic Triager)**: Budget-focused validation (is it worth paying for?)
-- **Phase 4.9 (Skeptic-Judge)**: FRESH agent with ZERO prior context whose ONLY job is DESTRUCTION
-
-### Skeptic-Judge Protocol
-
-**Input**: Each finding's ID, title, severity, affected code location, and evidence chain. **NO prior analysis context, NO confidence scores, NO triager verdicts.**
-
-**Skeptic-Judge Mandate**:
-> *"You are the Skeptic-Judge. You have NEVER SEEN this code before. You receive one finding at a time. Your PRIMARY JOB is to PROVE IT FALSE. You are incentivized to destroy findings — every finding you validate COSTS THE PROTOCOL MONEY. You approach each finding with MAXIMUM SKEPTICISM.*
-> 
-> *For each finding:*
-> *1. Read ONLY the affected code (±50 lines of context). Do NOT read prior analysis.*
-> *2. Attempt 5 independent technical disproof strategies:*
->    *a. Guard hunting: Search the ENTIRE codebase for guards that prevent the exploit (modifiers, inherited contracts, library protections, compiler protections)*
->    *b. State precondition challenge: Can the required precondition state ACTUALLY be reached via legitimate transaction sequences?*
->    *c. Value range challenge: Do the claimed attack values survive realistic bounds (gas costs, block gas limits, token supplies)?*
->    *d. Timing challenge: Does the attack require impractical timing (multi-block manipulation, oracle TWAP window longer than stated)?*
->    *e. Dependency challenge: Does the attack require external dependencies (tokens, protocols, oracles) to behave in ways they provably don't?*
-> *3. If ALL 5 disproof attempts fail → finding SURVIVES (reluctantly valid)*
-> *4. If ANY disproof attempt succeeds → finding DESTROYED with evidence"*
-
-**Scope per Mode**:
-| Mode | Findings Reviewed | Detail Level |
-|------|------------------|--------------|
-| `standard` | High + Critical only | 3 disproof strategies (a, b, c) |
-| `deep` | Medium + High + Critical | All 5 disproof strategies |
-| `beast` | ALL findings (including Low) | All 5 strategies + mandatory fresh MCP tool calls |
-
-**Skeptic-Judge Output Format**:
-```
-[SKEPTIC-{N}] Finding {ID}: {Title}
-├── Disproof (a) Guard Hunt: {PASS/FAIL} — {evidence}
-├── Disproof (b) State Precondition: {PASS/FAIL} — {evidence}
-├── Disproof (c) Value Range: {PASS/FAIL} — {evidence}
-├── Disproof (d) Timing: {PASS/FAIL} — {evidence} (deep+ only)
-├── Disproof (e) Dependency: {PASS/FAIL} — {evidence} (deep+ only)
-├── Verdict: {DESTROYED | SURVIVED | DOWNGRADED}
-├── Confidence Adjustment: {+0.10 if survived all 5 | -0.15 per failed strategy}
-└── Reasoning: {1-2 sentences explaining why finding lives or dies}
-```
-
-**Integration with Pipeline**:
-- Findings DESTROYED by Skeptic-Judge are removed from the report (logged in `audit-debug.md`)
-- Findings SURVIVED get a +0.10 confidence boost (survived independent adversarial review)
-- Findings DOWNGRADED have severity reduced with documented reasoning
-- Skeptic-Judge statistics logged in Audit Trace Summary
-
-## Phase 4.5: NEMESIS CONVERGENCE LOOP *(beast mode only)*
-
-Read `{resolved_path}/references/nemesis-convergence.md` for full loop instructions.
-
-### Pass 1: Feynman Auditor
-Question every line using the 7 Feynman questions. Expose assumptions. Flag suspects with [FQ-N] format.
-
-### Pass 2: State Inconsistency Auditor
-Map every coupled state pair. Find mutation gaps. Use Feynman suspects as targets. Flag with [SI-N] format.
-
-### Pass 3-6: Alternating Targeted Passes
-Each pass interrogates the previous pass's NEW findings only.
-**Convergence**: Stop when 2 consecutive passes produce zero new findings, or 6 passes reached.
-
-### Merge with Phase 4 Findings
-- Deduplicate by root cause (keep higher-confidence version)
-- Cross-feed confirmation (FQ + SI on same code) = merge with +10 confidence boost
-- All merged findings enter Phase 5 for validation
+Apply all 6 checks from `references/fp-gate.md` with **mandatory evidence artifacts**. See `references/phase-4-attack.md` for complete methodology including:
+- Adversarial Verification (4.4)
+- Economic Triager Validation (4.5)
+- Severity Formula (4.6)
+- Iterative Depth Loop (4.8)
+- Semantic Invariant Dual-Pass (4.85)
+- Skeptic-Judge (4.9)
+- Nemesis Convergence Loop (4.5, beast mode only)
+
+**Verdict**:
+- **NO VULNERABILITY**: Document refutation steps, specific constraints preventing exploit, confidence level.
+- **VULNERABILITY CONFIRMED**: Produce finding in output format, then proceed to Phase 5 for validation.
 
 ## Phase 5: VALIDATE — PoC & Reproducibility
 
 **Every Critical/High finding MUST have a working PoC.** Medium findings SHOULD have PoCs.
 
 ### 5.0 Finding-Type to PoC-Template Mapping
-Use this table to select the correct PoC scaffold from `references/poc-templates.md`:
-
-| Finding Tag | PoC Template | Key Assertion |
-|-------------|-------------|---------------|
-| `[HUNT-*]` Reentrancy | Template 1: Reentrancy | `profit > 0 && profit > attackDeposit` |
-| `[HUNT-*]` Share Inflation | Template 2: Share Inflation | `victimShares == 0` |
-| `[HUNT-*]` Oracle Manipulation | Template 3: Oracle Manipulation | `priceAfter > priceBefore * 2` |
-| `[HUNT-*]` Access Control | Template 4: Access Control Bypass | `owner == attacker` |
-| `[HUNT-*]` Flash Loan | Template 5: Flash Loan Attack | `profit > 0` after flash loan |
-| `[HUNT-*]` Upgrade/Storage | Template 6: Cross-Function Sequence | `sharesAfter != sharesBefore` |
-| `[HUNT-*]` Token Integration | Template 10: Token Integration | `protocolBalance < expected` or insolvent |
-| `[HUNT-*]` Signature Replay | Template 11: Signature Replay | `drainedAmount > authorizedAmount` |
-| `[REVERSE-*]` any | Template 7: Reverse Impact PoC | `attackerBalance > initialBalance + threshold` |
-| `[BOUNDARY-*]` any | Template 8: Boundary Value PoC | `actualResult != expectedResult` |
-| `[STALE-*]` or `[CONFLICT-*]` | Template 9: State Desync PoC | `stateA != expectedStateA` after callback |
-| `[BRIDGE-*]` Cross-chunk | Template 6: Cross-Function Sequence | Adapt for multi-contract flow |
+Use templates from `references/poc-templates.md`.
 
 ### 5.1 Write PoC
-**IMPORTANT**: Only create PoCs if the repo already has a testing framework configured (Foundry/Hardhat/Anchor). Otherwise, provide detailed manual verification steps.
+**IMPORTANT**: Only create PoCs if the repo already has a testing framework configured (Foundry/Hardhat/Anchor).
 
-Use templates from `references/poc-templates.md`. For EVM:
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -1647,9 +982,8 @@ import "forge-std/Test.sol";
 
 contract {VulnName}PoC is Test {
     function setUp() public {
-        vm.createSelectFork(vm.envString("RPC_URL"));
+        vm.createSelectFork(vm.envString("RPC_URL")); // Read from environment variables
     }
-
     function test_exploit() public {
         // 1. Setup attacker position
         // 2. Execute exploit sequence
@@ -1658,99 +992,28 @@ contract {VulnName}PoC is Test {
 }
 ```
 
-### 5.2 PoC Verification Prompt *(NEW — from Forefy)*
-For each finding, include a **verification prompt** — a precise LLM prompt that a reviewer could use to independently validate the finding:
-```markdown
-**PoC Verification Prompt:**
-Setup: Deploy contracts A, B, C with [parameters]
-Step 1: Call A.deposit(100 ETH) as user1
-Step 2: Call A.deposit(100 ETH) as attacker within callback
-Expected: Attacker credited 200 ETH for 100 ETH cost
-Success criteria: attacker.balance > initial + 100 ETH
-```
-
-### 5.3 Validate Reproducibility
+### 5.2 Validate Reproducibility
 - Reproduce 3 times with different inputs
-- Quantify impact: TVL at risk, % of TVL, users affected, recovery possibility
-- Assess feasibility: capital required, skill level, time window, detection probability
-- Include **economic analysis**: attack profitability at current gas prices and token values
+- Quantify impact: TVL at risk, % of TVL, users affected
+- Include **economic analysis**: attack profitability at current gas prices
 
-### 5.4 Root Cause Analysis
-For each finding: underlying vulnerability, exact code location, assumption violated, why existing mitigations failed.
+## Phase 6: FUZZ — Invariant Fuzz Generator
 
-## Phase 6: FUZZ — Invariant Fuzz Generator *(UPGRADED — from Plamen's LLM-driven invariant test architecture)*
+> **Full details**: See `references/phase-6-fuzz.md` for complete FUZZ phase methodology.
 
 **MANDATORY for deep/beast modes. Skip for quick/standard.**
 
-### 6.0 Invariant Derivation *(NEW — from Plamen)*
+- **6.0 Invariant Derivation**: Derive from actual audit artifacts
+- **6.1 Generate Handler Contract**: Foundry test file to `test/invariant/InvariantFuzz.t.sol`
+- **6.2 Compile and Run Campaign**: `forge test --match-contract InvariantFuzz --invariant-runs 256 --invariant-depth 25`
+- **6.3 PoC Fuzz Variants**: For every Medium+ finding
+- **6.4 Multi-Chain Fuzz Support**: EVM (Echidna/Medusa), Solana (Trident), Aptos/Sui
 
-**Do NOT use generic test templates.** Derive invariants from the actual audit artifacts:
-
-| Source | Category | What to Derive |
-|--------|----------|---------------|
-| Phase 1.5 (Business Context) | Protocol-specific economic | Core protocol guarantees (e.g., `totalBorrows <= totalDeposits`, `sharePrice monotonically increasing`) |
-| Phase 3.5 (Findings Inventory) | Finding-derived | For each Medium+ finding: "What invariant would CATCH this bug mechanically?" |
-| Phase 2 (Function Map) | Lifecycle invariants | For each lifecycle (deposit→withdraw, borrow→repay): verify net token deltas are zero minus fees |
-| Phase 3.H (Data Flow) | Structural invariants | Mirror variables synchronized, accumulators bounded, conditional writes not stale |
-| Phase 4.3 (FP Gate) | Boundary invariants | Constraint variables stay within documented bounds after any operation sequence |
-
-**No cap on invariant count** — Forge execution is zero token cost regardless of count. Write as many `invariant_` functions as the protocol has meaningful properties.
-
-### 6.1 Generate Handler Contract *(UPGRADED — from Plamen)*
-
-Write a Foundry test file to `test/invariant/InvariantFuzz.t.sol`:
-
-**Handler Rules** *(from Plamen)*:
-- Include ALL public/external state-mutating functions — no cap on handler count
-- Use `try/catch` for external calls — handlers must not revert (reverts hide bugs)
-- Include `vm.warp(bound(dt, 1, 365 days))` handlers for time-dependent protocols
-- Include `vm.prank(user)` for multi-actor scenarios — at least 2 distinct users
-- **Lifecycle sequence handlers** (MANDATORY): Execute full create→use→close flows atomically
-- **Partial lifecycle handlers**: Enter position but don't exit — tests abandoned positions
-
-**Value bounds** — use protocol-realistic ranges:
-- Token amounts: `bound(amount, 1, 1_000_000 * 10**decimals)`
-- Fees/rates: `bound(fee, 0, 10_000)` for BPS, `bound(rate, 0, 1e18)` for WAD
-- Time deltas: `bound(dt, 1, 365 days)` for interest, `bound(dt, 0, 7 days)` for operational
-- Read constraint variables from Phase 2 for protocol-specific bounds
-
-### 6.2 Compile and Run Campaign
-```bash
-# Compile (max 5 retry attempts on failure)
-forge build 2>&1 | tail -30
-
-# Run — 256 runs × depth 25 (3-10 minutes, zero token cost)
-timeout 600 forge test --match-contract InvariantFuzz --invariant-runs 256 --invariant-depth 25 --fail-on-revert false -vv 2>&1 | head -300
-```
-
-### 6.3 PoC Fuzz Variants *(NEW — from Plamen)*
-For every Medium+ confirmed finding from Phase 4, write a SECOND test with key parameters fuzzed:
-```bash
-forge test --match-test testFuzz_{finding_id} -vvv
-```
-This explores the neighborhood around each finding mechanically — catching attack variants the agent didn't manually consider. If the specific PoC failed but the fuzz variant finds a violation → report the working variant.
-
-### 6.4 Multi-Chain Fuzz Support *(NEW — from Plamen)*
-
-| Chain | Tool | Command | Notes |
-|-------|------|---------|-------|
-| **EVM (Foundry)** | Forge invariant | `forge test --match-contract InvariantFuzz --invariant-runs 256 --invariant-depth 25` | Primary |
-| **EVM (Echidna)** | Echidna | `echidna-test . --test-limit 100000 --seq-len 100` | beast mode only |
-| **EVM (Medusa)** | Medusa stateful | `medusa fuzz --target ./src --seq-len 100 --test-limit 50000 --timeout 900` | beast mode — parallel with Forge |
-| **Solana (Anchor)** | Trident (preferred) | `cd trident-tests && trident fuzz run fuzz_0` | v0.11+ uses built-in TridentSVM. Found Critical bugs in Kamino, Marinade, Wormhole |
-| **Solana (native)** | proptest (fallback) | `cargo test test_fuzz_* -- --nocapture` | Use `proptest!` macro with bounded inputs |
-| **Aptos / Sui** | Parameterized tests | Multiple `#[test]` with boundary values | No fuzzer — test min/mid/max concrete values |
-
-### 6.5 Results Report
-Write to output directory:
-```markdown
-# Invariant Fuzz Results
-| # | Invariant | Category | Source | Status | Counterexample | Related Finding |
-|---|-----------|----------|--------|--------|---------------|----------------|
-```
-Violations become depth agent input — they provide concrete counterexamples. Evidence tag: `[POC-PASS]` (mechanical proof).
+Violations become depth agent input — they provide concrete counterexamples. Evidence tag: `[POC-PASS]`.
 
 ## Phase 7: REPORT — Final Deliverable
+
+> **Full details**: See `references/phase-7-report.md` for complete REPORT phase methodology.
 
 ### 7.1 Finding Classification
 
@@ -1762,212 +1025,21 @@ Violations become depth agent input — they provide concrete counterexamples. E
 | P3 | LOW | Minimal impact, best practice violations |
 | P4 | INFO | Gas optimizations, code quality, documentation |
 
-### 7.2 Report Structure *(UPGRADED — from Forefy + solidity-auditor-skills)*
-Generate `VEERSKILLS_AUDIT_REPORT.md` in the versioned output directory with:
+### 7.2 Report Structure
+Generate `VEERSKILLS_AUDIT_REPORT.md` with:
+1. **Executive Summary**: Protocol overview, findings summary, key risk areas
+2. **Scope Table**: Contracts, SLOC, purpose, libraries
+3. **Findings by Severity**: Critical/High/Medium/Low with triager status
+4. **Below Confidence Threshold**: Findings with confidence 40-79
+5. **Statistical Analysis**: Code metrics, vector coverage
+6. **Appendix**: Tools used, PoC code, commit hash
 
-1. **Executive Summary** *(enhanced from Forefy)*:
-   - **Protocol Overview**: What DeFi problem does this solve? Industry vertical, unique features
-   - **User Profile**: Primary users, interaction patterns, funds at stake
-   - **Total Value Locked**: Current or expected TVL
-   - **Security Budget**: Estimated budget range based on TVL (~10% of TVL)
-   - **Threat Model Summary**: Primary threats identified (from Phase 1.6)
-     - Economic attackers targeting [specific mechanisms]
-     - Flash loan exploits affecting [specific functions]
-     - Governance attacks on [specific parameters]
-     - Oracle manipulation risks in [specific feeds]
-   - **Security Posture Assessment**: Overall Risk Level (High/Medium/Low)
-   - **Findings Summary Table**: Count by severity (X Critical, Y High, Z Medium, W Low)
-   - **Key Risk Areas**: Top 3 numbered risk areas with protocol context
+### 7.3 Missed-Bug Self-Audit (MANDATORY)
+- Components verified against protocol map
+- Missed-pattern cross-check against `references/missed-bug-patterns.md`
+- Coverage gaps documented
 
-2. **Scope Table** *(NEW — from solidity-auditor-skills)*:
-   Present in-scope contracts in a clean table format:
-   ```markdown
-   | Contract | SLOC | Purpose | Libraries |
-   |----------|------|---------|-----------|
-   | Vault.sol | 342 | Core deposit/withdraw logic | OpenZeppelin, Solmate |
-   | Strategy.sol | 156 | Yield generation | Uniswap V3 |
-   | Oracle.sol | 89 | Price feeds | Chainlink |
-   ```
-   - **SLOC**: Source Lines of Code (excluding comments/blanks)
-   - **Purpose**: One-sentence description
-   - **Libraries**: Key external dependencies
-
-3. **Table of Contents — Findings** *(from Forefy)*:
-   Include triager status for each finding:
-   ```
-   ### Critical Findings
-   - C-1 [Impact] via [Weakness] in [Feature] (VALID)
-   - C-2 [Impact] via [Weakness] in [Feature] (QUESTIONABLE)
-   ### High Findings
-   - H-1 [Impact] via [Weakness] in [Feature] (VALID)
-   - H-2 [Impact] via [Weakness] in [Feature] (DISMISSED)
-   ### Medium / Low / Info ...
-   ```
-
-4. **Critical Findings**: Full details + PoC + attack scenario + mitigation + triager validation (sorted by confidence)
-5. **High Findings**: Full details + PoC + attack scenario + mitigation + triager validation
-6. **Medium Findings**: Description, impact, recommended fix, triager verdict
-7. **Low/Informational**: Description, best practice reference, triager verdict
-
-8. **Confidence Threshold Separator** *(NEW — from solidity-auditor-skills)*:
-   Insert a clear visual separator before findings with confidence < 80:
-   ```markdown
-   ---
-   ## Below Confidence Threshold (60-79)
-   
-   The following findings have confidence scores between 60-79. They represent potential issues that require additional validation or have uncertain exploitability. These are included for completeness but should be prioritized lower than confirmed findings above.
-   
-   ---
-   ```
-
-9. **Below Confidence Threshold**: Findings with confidence 40-79 (description only, no fix)
-10. **Statistical Analysis**: Code metrics, vulnerability distribution by class, vector triage summary
-11. **Security Posture (SWOT)**: Strengths, weaknesses, opportunities, threats
-12. **Coverage Analysis**: Protocol layer coverage (from Phase 2.4 Coverage Plan)
-13. **Testing Summary**: Static analysis results, dynamic analysis, manual review, vector coverage
-14. **Appendix**: Tools used, coverage reports, PoC code, commit hash, debug log summary
-
-## Phase 7.5: MISSED-BUG SELF-AUDIT *(NEW — mandatory all modes)*
-
-**MANDATORY** — prevents coverage blind spots from going undetected. The most dangerous audit failure is not a false positive — it's a missed bug.
-
-### 7.5.1 Coverage Gap Identification
-Before finalizing the report, the agent MUST answer ALL of these questions:
-
-1. **"What 3 vulnerability classes did I spend the LEAST time analyzing?"**
-   - Review the hunt phases: which classes got cursory attention?
-   - List them with a one-sentence explanation of why they were deprioritized
-
-2. **"What 3 functions did I NOT read line-by-line?"**
-   - Check the function list from Phase 2.1. Which functions were skipped?
-   - Prioritize: do any of these handle funds, set prices, or control access?
-
-3. **"What cross-contract interactions did I NOT trace end-to-end?"**
-   - Check the data flow graph from Phase 3.H. Which external calls lack full traces?
-   - Any external call to an untrusted contract that wasn't fully analyzed?
-
-4. **"What state variable pairs did I NOT check for coupling?"**
-   - Check the state coupling map from the Nemesis loop (or build one now for non-beast modes)
-   - Any pairs where one side writes without the other being validated?
-
-5. **"What boundary values did I NOT inject?"**
-   - Review Phase 3.I results. Any critical arithmetic without 0/max injection?
-
-### 7.5.2 Gap Fill Protocol
-For EACH identified gap:
-- If the gap involves a fund-moving function → **GO BACK and analyze it NOW** (mandatory)
-- If the gap involves a view function → document as "limited coverage" in the report
-- If the gap involves a non-critical helper → acceptable to skip, log in `audit-debug.md`
-
-### 7.5.3 Self-Audit Output
-Include in the report appendix:
-```
-## Self-Audit Coverage Report
-| Question | Gaps Found | Action Taken |
-|----------|-----------|-------------|
-| Least-analyzed vuln classes | [list] | [re-analyzed / accepted risk] |
-| Unread functions | [list] | [read now / non-critical skip] |
-| Untraced cross-contract calls | [list] | [traced now / view-only skip] |
-| Unchecked state coupling | [list] | [checked now / logged] |
-| Missing boundary injections | [list] | [injected now / non-arithmetic skip] |
-```
-
-### 7.3 Quality Assurance — 12 Checks
-- [ ] **Completeness**: All findings have PoCs (C/H), code locations, recommendations
-- [ ] **Accuracy**: Severity consistent with impact, technical details verified
-- [ ] **Clarity**: Clear language, terms explained, logical flow, no ambiguity
-- [ ] **Actionability**: Every finding has fix + complexity estimate + code example
-- [ ] **Zero FP**: Every finding survived 6-check deep FP Gate + 3x reproducibility
-- [ ] **Vector Coverage**: All 280+ vectors triaged, all surviving vectors deep-analyzed
-- [ ] **Protocol Coverage**: All protocol-specific required checks completed
-- [ ] **Coverage Plan**: All 5 protocol layers fully analyzed (Core/Economic/Access/Integration/Technical)
-- [ ] **Threat Model**: All identified threat actors have corresponding findings or explicit clearance
-- [ ] **Debug Log**: audit-debug.md contains breadcrumbs for every search, decision, and economic calculation
-- [ ] **Self-Audit**: Phase 7.5 completed — all coverage gaps identified and filled or documented
-- [ ] **Data Flow**: Phase 3.H data flow graph produced — no orphan writes or undetected stale reads in critical paths
-
-### 7.4 Mandatory Audit Trace *(from WEB3-AUDIT-SKILLS)*
-After the report, always output:
-```
-## Audit Trace Summary
-| Metric | Value |
-|--------|-------|
-| Codebase Size | [X] lines |
-| Contracts Audited | [X] |
-| Functions Reviewed | [X] |
-| Protocol Type | [Lending/DEX/Bridge/...] |
-| TVL Estimate | $[X] |
-| Threat Actors Modeled | [X] |
-| Attack Vectors Triaged | [X] / 170 |
-| Vectors Survived Triage | [X] |
-| Protocol Context Bug Classes Checked | [X] |
-| FV-SOL Subcases Applied | [X] / 67 |
-| Checklist Items Checked | [X] |
-| Coverage Plan Layers Complete | [X] / 5 |
-| Findings (Total) | [X] |
-| Findings (Confirmed ≥80) | [X] |
-| Findings (Likely 60-79) | [X] |
-| Findings (Below Threshold) | [X] |
-| Findings (Dropped by FP Gate) | [X] |
-| Findings (Dismissed by Triager) | [X] |
-| Findings (Overclassified by Triager) | [X] |
-| Debug Log Entries | [X] |
-| Output Directory | veerskills-outputs/[N]/ |
-```
-
-## Finding Output Format
-
-```json
-{
-  "id": "VS-{N}",
-  "title": "[Impact] via [Weakness] in [Feature]",
-  "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
-  "severity_score": {"impact": 3, "likelihood": 2, "exploitability": 3, "base": 18},
-  "confidence": "[{score}]",
-  "confidence_deductions": ["reason: -N", "reason: -N"],
-  "source": "slither|aderyn|manual|echidna|vector-scan|feynman|state-inconsistency",
-  "vector_id": "V{N} or N/A",
-  "fv_sol_id": "fv-sol-{X}-c{Y} or N/A",
-  "category": "RE|AC|AR|OR|DO|EC|UP|CO",
-  "network": "EVM|Solana|Move|TON|Starknet|Cosmos",
-  "affected_files": ["path/to/file.sol"],
-  "affected_lines": {"start": 142, "end": 158},
-  "description": "Detailed explanation with TL;DR summary",
-  "impact": "What attacker gains, TVL at risk, user fund loss potential",
-  "attack_scenario": "Step-by-step exploit sequence with tx details",
-  "innocent_user_story": "Normal user action → Expected outcome (mermaid diagram)",
-  "attack_flow": "Attacker step 1 → step 2 → step 3 → profit (mermaid diagram)",
-  "poc": "PoC code or reference to PoC file",
-  "root_cause": "Underlying assumption violated",
-  "remediation": "Specific fix with code example",
-  "evidence_sources": [
-    {"type": "static_analysis", "tool": "slither", "detector_id": "...", "detail": "..."},
-    {"type": "checklist", "checklist_item_id": "...", "detail": "..."},
-    {"type": "solodit", "solodit_url": "...", "detail": "..."},
-    {"type": "attack_vector", "vector_id": "V52", "detail": "Single-function reentrancy"},
-    {"type": "protocol_context", "protocol_type": "Lending", "bug_class": "Reentrancy", "historical": "JPEG'd deposit reentrancy via ERC-777"}
-  ],
-  "fp_gate_results": {
-    "check_1_concrete_path": "PASS: deposit() → token.transfer() → callback → deposit() → double credit",
-    "check_2_reachable": "PASS: deposit() is external, no access control",
-    "check_3_no_guard": "PASS: no nonReentrant, no CEI",
-    "check_4_cross_file": "PASS: no inherited guards found",
-    "check_5_dry_run": "PASS: deposit(100 ETH) → callback → deposit(100 ETH) → 200 ETH credited for 100 ETH",
-    "check_6_solodit": "PASS: similar finding in Code4rena Sushi Trident audit confirmed as High"
-  },
-  "triager_validation": {
-    "technical_disproof": "FAILED to disprove — attack path verified with concrete values",
-    "economic_feasibility": "Flash loan 1000 ETH @ 0.09% fee = 0.9 ETH, profit = 50 ETH → economically rational ✓",
-    "evidence_chain": "COMPLETE: Code Pattern → FV-SOL-1-C2 (cross-function reentrancy) → deposit reentry → double credit → fund theft",
-    "cross_finding_consistency": "No contradictions with other findings",
-    "verdict": "VALID"
-  },
-  "expert_attribution": {
-    "found_by": "Agent 1 (V1-V42 scan) + Agent 5 (adversarial)",
-    "missed_by": "Agent 3 — focused on DoS/Economic vectors, outside scope"
-  }
-}
-```
+---
 
 ## Multi-Agent Orchestration (standard/deep/beast modes)
 
@@ -1986,23 +1058,14 @@ Agents operate as **distinct expert personas** with mandatory separation. No age
 VeerSkills dynamically scales agent count based on codebase size AND protocol complexity:
 
 **Vector-Scan Agent Scaling (Agents 1-N)**:
-```
-vector_agent_count(lines, protocol_complexity) = min(ceiling, max(floor, base + lines / divisor))
-
-Where:
-  quick mode:   floor=3, ceiling=4,  base=2, divisor=3000
-  standard:     floor=4, ceiling=6,  base=2, divisor=2000
-  deep:         floor=5, ceiling=8,  base=3, divisor=1500
-  beast:        floor=6, ceiling=20, base=4, divisor=1000
-```
-Example: Beast mode, 15,000 lines → `min(20, max(6, 4 + 15)) = 19` vector agents.
-
-**Per-Contract Agent Spawning (beast mode, >10k lines)**:
-For codebases >10,000 lines in beast mode, additionally spawn **per-contract dedicated agents**:
-- Each high-risk contract (>500 lines, handles funds/access/oracle) gets its own agent
-- Per-contract agents analyze ONLY their assigned contract + the Interface Map
-- Maximum: 30 per-contract agents (hard cap to prevent resource exhaustion)
-- Per-contract agent count: `min(30, count_of_high_risk_contracts)`
+- Base count from Plamen Context Budget: `BC = min(8, max(4, TOTAL_LINES / 1500))`
+- Beast mode ceiling: `min(20, BC + protocol_specialists)`
+- Minimum: 2 agents (guaranteed coverage)
+- **Per-Contract Agent Spawning (beast mode, >10k lines)**:
+  - Each high-risk contract (>500 lines, handles funds/access/oracle) gets its own agent
+  - Per-contract agents analyze ONLY their assigned contract + the Interface Map
+  - Maximum: 30 per-contract agents (hard cap to prevent resource exhaustion)
+  - Per-contract agent count: `min(30, count_of_high_risk_contracts)`
 
 **Total Agent Ceiling by Mode**:
 | Mode | Vector Agents | Specialist Agents | Per-Contract | Total Max |
@@ -2028,302 +1091,48 @@ Specialist agents (7-17) scale independently based on protocol flags, not codeba
 | 9 | opus | **State Inspector** | N/A | State coupling + mutation gaps + cross-chunk analysis | deep+ |
 | 10 | opus | **Feynman Questioner** | N/A | 7 Feynman questions per function | beast only |
 | 11 | sonnet | **Variant Hunter** | N/A | Systematic variant analysis of all confirmed findings | beast only |
-| 12 | opus | **Cross-Chain Integrator** | N/A | Cross-chunk + cross-contract attack chains | beast only (multi-chunk) |
+| 12 | opus | **Cross-Chunk Integrator** | N/A | Cross-chunk + cross-contract attack chains | beast only (multi-chunk) |
 | 13 | opus | **Protocol Routes Enforcer** | N/A | Critical path verification + required checks enforcement | deep+ |
 | **17** | **opus** | **Skeptic-Judge** | N/A | **Independent adversarial disproof of ALL High/Critical findings (standard+) and Medium+ (deep+). Zero prior context. Goal: DESTROY findings.** | **standard+** |
 
-### Specialist Depth Agent Methodologies *(NEW — from Plamen's formal depth agent definitions)*
+See `references/phase-3-hunt.md` and `references/phase-4-attack.md` for detailed agent methodologies.
 
-**Agent 9: State Inspector** receives specific targets from the Inventory (Phase 3.5) and applies a **6-step formal methodology**:
+### Turn 3 — Execute (Parallel Breadth Phase)
+**Staggered launch**: Agents 1-N spawn simultaneously (each gets subset of vectors). Execute Phase 3.HUNT per agent bundle. Generate `[HUNT-{N}]` entries. Log all operations in `audit-debug.md`.
 
-1. **Complete State Graph**: For each target state variable, list EVERY function that reads/writes it. Draw the dependency graph. Also list functions that change what the variable SHOULD represent without directly writing it (e.g., increasing protocol balance without updating tracking variable)
-2. **Cross-Function Consistency**: If X increments in function A, does it decrement in function B? Are all operations atomic? Can function A put the variable in a state function B doesn't handle?
-3. **Constraint Enforcement Trace**: For each constraint variable (min/max/cap/limit), verify the check is present on ALL code paths with correct comparison operators (< vs <=, > vs >=)
-4. **Entry Point → Downstream Trace**: For each entry point, trace complete data flow from user input to final state. If entry point forgets to update variable X, what breaks downstream?
-5. **Unenforced Variable Deep Dive**: For any unenforced constraint variable, confirm enforcement is truly absent, then assess impact
-6. **Write-Read Consistency Audit**: How is variable READ (what assumptions do consumers make)? How is it WRITTEN (what does update logic produce)? Does write satisfy what readers assume?
+### Turn 4 — Depth Phase (Standard+)
+**Sequential execution with checkpoint**: Route findings by confidence and complexity. See detailed depth agent methodologies in external reference files.
 
-**Verdict Options**: Every depth finding must conclude with one of:
-- `CONFIRMED`: Breadth finding correct — evidence proves exploitability
-- `REFINED`: Partially correct — actual issue is different/narrower than suspected
-- `REFUTED`: Incorrect — mechanism X prevents exploit (requires `[CODE]+` evidence, not `[MOCK]`)
-- `CONTESTED`: Evidence mixed or incomplete — escalate to verifier
+### Turn 5 — Merge
+Consolidate findings: deduplicate by root cause, severity, evidence quality. Update `VEERSKILLS_AUDIT_REPORT.md`. Log merge decisions.
 
-**Agent 10: Feynman Questioner** applies the **7 Feynman Questions** to every function:
-1. "What is this function's ACTUAL behavior, not its documented intent?"
-2. "What value ranges can each parameter take? What happens at boundaries?"
-3. "What state does this function ASSUME is true? Is that assumption enforced?"
-4. "What happens if this function is called twice in sequence? In the same transaction?"
-5. "What other functions depend on this function's output? Can bad output cascade?"
-6. "If I were an attacker, what is the ONE input I would craft to break this?"
-7. "What has this function NOT checked that it should?"
+### Turn 6 — Fuzz & Finalize
+Run Phase 6.FUZZ (deep/beast only). Log findings. Generate final report.
 
-**Agent 14: Token Flow Analyst** *(NEW — from Plamen's depth-token-flow agent)*:
-Specialized in token entry/exit paths, donation attacks, and type separation. For EACH target:
-1. **Token Entry**: Trace exact path from external call to state update. Can tokens arrive via paths that bypass tracked accounting? (direct transfer, donation)
-2. **Token Exit**: What state variables determine exit amount? Can they be manipulated independently of actual balance?
-3. **Type Separation** (multi-token): Are different token types tracked in separate variables? Can one type's operations affect another's accounting?
-4. **Donation Vectors**: For every `balanceOf(this)` query, compute exchange rate with REAL constants. Simulate: attacker donates X → rate change? Economically viable?
-5. **Real Constant Validation**: MANDATORY — extract ACTUAL constant values from source, substitute into analysis
-
-**Agent 15: Edge Case Analyst** *(NEW — from Plamen's depth-edge-case agent)*:
-Specialized in zero-state analysis, dust analysis, and boundary conditions with real constants:
-1. **Zero-State**: Test initial zero state (total supply == 0) AND return-to-zero state (all users exited). Return-to-zero is often WORSE (residual assets skew next depositor's rate)
-2. **Dust Analysis**: Test minimum unit input (1 wei), threshold+1, smallest valid amount. Check: can SUM of rounded fees > input amount?
-3. **Boundary Conditions**: For each `<` → should it be `<=`? For each `>` → should it be `>=`? Test: boundary-1, boundary, boundary+1
-4. **Selection at Partial Saturation**: For N-of-M selections → test 1-of-N full, N-1-of-N full, all-full
-5. **Deterministic Outcome Preview**: Can user observe/compute outcome BEFORE committing?
-
-**Agent 16: External/MEV Analyst** *(NEW — from Plamen's depth-external agent)*:
-Specialized in external call side effects, cross-chain timing, MEV, and governance impact:
-1. **External Side Effects**: What does the call ACTUALLY do? (token transfer, state update, event) What does the protocol ASSUME? Check for selective revert callbacks
-2. **Cross-Chain Timing**: Message latency (minutes-hours) → what can attacker do in this window? Rate arbitrage? Double-spend? Stale state exploitation?
-3. **MEV Vectors**: Sandwich surface (slippage protection?), Flash loan enablement (time-locks?), Oracle manipulation (TWAP window?)
-4. **Governance/Parameter Change**: Can external dependency parameter changes break audited protocol?
-
-### Mandatory Depth Directives *(NEW — from Plamen — applies to ALL depth agents)*
-
-**Callback Selective Revert Analysis** (MANDATORY for all depth agents):
-For every code path that transfers execution to an external address AFTER determining a value-bearing outcome: Can the external address REVERT to reject the outcome and retry for a better one? This is NOT reentrancy — `nonReentrant` does NOT prevent it. Check: `_safeMint` → `onERC721Received`, ERC-777 hooks, ERC-1155 batch, flash loan callbacks, Uniswap V4 hooks.
-
-**Exploitation Trace Mandate** (MANDATORY for Medium+ findings):
-Produce a concrete exploitation trace: attacker action → state change → profit/loss. "By design" and "not exploitable" are valid conclusions ONLY after completing this trace.
-
-**Discovery Mode** (MANDATORY):
-Depth agents are in DISCOVERY mode — ERR ON THE SIDE OF REPORTING. A false negative (missed bug) is far more costly than a false positive. Report anything suspicious with evidence; verification (Phase 5) will validate or refute.
-
-**Agent 8: DeFi Protocol Specialist** *(NEW — from solidity-auditor-skills)*:  
-This agent focuses exclusively on protocol-type-specific vulnerabilities using domain-specific checklists. It does NOT use attack vectors — instead, it applies the matching protocol checklist from the table below.
-
-**Protocol Classification & Checklist Assignment**:
-The agent first identifies the protocol type(s) present in the codebase, then applies ALL matching checklists:
-
-| Protocol Type | Checklist Items | Key Focus Areas |
-|---------------|----------------|-----------------|
-| **Lending / Borrowing** | 14 items | Health factor with accrued interest, liquidation incentive vs gas cost, self-liquidation prevention, collateral withdrawal blocking, minimum loan size, liquidation health improvement, LTV gap, interest accrual pause symmetry, collateral factor decimal scaling, oracle staleness, bad debt socialization, interest rate edge cases, borrow caps on all paths |
-| **AMM / DEX** | 9 items | Slippage protection off-chain, swap deadline caller-supplied, multi-hop slippage on final output, dynamic fee tier, LP value from TWAP not spot, concentrated liquidity tick overflow, pool initialization front-run prevention, router approval limits, sandwich attack mitigation |
-| **Vault / ERC-4626** | 9 items | First depositor inflation mitigation, rounding direction (deposit DOWN, withdraw UP), round-trip profit prevention, preview function consistency, share price manipulation resistance, allowance check in withdraw/redeem, fee-on-transfer handling, rebasing token handling, totalAssets completeness |
-| **Staking / Rewards** | 10 items | rewardPerToken update before balance change, first depositor front-run prevention, flash deposit/withdraw prevention, reward token != staking token handling, direct transfer dilution prevention, precision loss prevention, reward claim reentrancy, reward rate overflow, multiple reward token tracking, unstaking cooldown griefing prevention |
-| **Bridge / Cross-Chain** | 11 items | Message replay protection, chain ID in message hash, msg.sender == endpoint validation, peer/trusted remote validation, rate limits per time window, pause mechanism with guardian, DVN diversity (2/3+), supply invariant enforcement, decimal conversion correctness, sequencer uptime check on L2, grace period after sequencer restart |
-| **Governance** | 6 items | Vote weight from past block, timelock between passage and execution, quorum threshold sufficiency, proposal execution front-run prevention, delegate privilege constraints, token transfer double-voting prevention |
-| **Proxy / Upgradeable** | 11 items | _disableInitializers in constructor, atomic proxy+init deployment, storage layout append-only, EIP-1967 storage slots, UUPS _authorizeUpgrade access control, UUPS V2+ inheritance, Diamond namespaced storage, Diamond selector collision prevention, proxy admin multisig+timelock, upgrade+config atomic bundling, immutable variable avoidance in implementation |
-| **Account Abstraction (ERC-4337)** | 7 items | validateUserOp entryPoint restriction, UserOp signature nonce+chainId binding, banned opcode avoidance in validation, paymaster prefund 10% penalty, paymaster token payment in validation not postOp, execute/executeBatch entryPoint/owner restriction, factory CREATE2 salt owner inclusion |
-
-**Agent 8 Workflow**:
-1. Read all in-scope `.sol` files + `judging.md` and `report-formatting.md` from references
-2. **DO NOT** read attack vector files — Agent 8 uses protocol checklists exclusively
-3. Identify protocol type(s) from imports, function names, state variables, inheritance
-4. Apply ALL matching protocol checklists item-by-item
-5. For each checklist item: trace whether implemented correctly, incorrectly, or not at all
-6. Only report items with concrete exploit paths
-7. Apply FP gate from `judging.md` to every potential finding
-8. Final response MUST contain every finding formatted per `report-formatting.md`
-9. If NO findings: respond with "No findings."
-
-**Agent 13: Protocol Routes Enforcer** *(NEW — from veerskills protocol-routes.md)*:  
-This agent verifies that ALL critical paths identified in `protocol-routes.md` have been checked and that ALL required checks have been performed. It acts as a final safety net to catch systematic coverage gaps.
-
-**Agent 13 Workflow**:
-1. Read `{resolved_path}/references/protocol-routes.md` for the detected protocol type
-2. For each Critical Path vector: verify that at least one finding OR explicit clearance exists
-3. For each Required Check: verify that the check was performed (search audit-debug.md for evidence)
-4. Flag any unchecked critical paths or missing required checks as `[ROUTE-MISS-{N}]`
-5. Output a coverage matrix showing which paths/checks were verified
-
-**Chain-Specific Agent Loading** (Agent 6):
-- **EVM**: Agent 6 becomes a second extended EVM agent (L2-specific + MEV)
-- **Solana**: Agent 6 loads `chain-deep-solana.md`, vectors V211-V225
-- **Move**: Agent 6 loads `chain-deep-move.md`, vectors V226-V235
-- **TON**: Agent 6 loads `chain-deep-ton.md`, vectors V236-V242
-- **Cosmos**: Agent 6 loads `chain-deep-cosmos.md`, vectors V243-V248
-- **Cairo**: Agent 6 loads `chain-deep-cairo.md`, vectors V249-V255
-
-### Injectable Skill System *(NEW — from Plamen's protocol-type enrichment architecture)*
-
-**Why**: Agent 8 (Protocol Specialist) applies protocol checklists in isolation. But protocol-type bugs manifest across ALL analysis domains — a lending protocol's liquidation bug might be found by the State Inspector, the Oracle analyst, OR the Economic Auditor. Injectable skills solve this by enriching EVERY relevant agent with protocol-type methodology.
-
-**How it works**: When recon detects a protocol type, the matching injectable skill's methodology is APPENDED to every relevant agent's prompt. No new agents are spawned — existing agents get deeper, protocol-aware analysis.
-
-| Injectable Skill | Protocol Trigger | Injected Into Agents | Key Methodology |
-|-----------------|-----------------|---------------------|-----------------|
-| **VAULT_ACCOUNTING** | ERC-4626/vault/shares pattern | Agents 2, 3, 9 | Share inflation attack trace, rounding direction audit, totalAssets completeness |
-| **LENDING_PROTOCOL** | liquidate/borrow/repay/collateral/LTV/healthFactor | Agents 1, 2, 3, 9 | Health factor with accrued interest, self-liquidation profitability, dust position bad debt |
-| **DEX_INTEGRATION** | swap/addLiquidity/ISwapRouter (when protocol is NOT itself a DEX) | Agents 2, 4 | Slippage on external swaps, MEV in multi-hop, router approval limits |
-| **GOVERNANCE_VECTORS** | Governor/Timelock/voting/proposal/quorum | Agents 3, 4 | Flash loan governance attack, delegate loops, timelock bypass via dependencies |
-| **NFT_PROTOCOL** | ERC721/ERC1155 with marketplace/staking/collateral | Agents 1, 2 | Metadata URI modification, batch authorization per-token, royalty edge cases |
-| **ACCOUNT_ABSTRACTION** | EntryPoint/UserOperation/Paymaster/ERC-4337 | Agents 1, 4 | Banned opcodes in validation, prefund penalty, nonce channel manipulation |
-| **OUTCOME_DETERMINISM** | Finite-pool selection with depletion + time-gated actions | Agents 2, 3 | Callback selective revert, RNG consumption enumeration |
-
-**Injection Protocol**:
-1. Recon (Phase 1) classifies protocol type from imports, function names, inheritance
-2. Matching injectable skill methodology is APPENDED to each target agent's bundle
-3. Agent analyzes with both its standard vectors AND the injected protocol methodology
-4. Log injections in `audit-debug.md`: `[INJECTABLE] Injected LENDING_PROTOCOL into Agents 1,2,3,9`
-
-### Niche Agent System *(NEW — from Plamen's flag-triggered deep-focus agents)*
-
-**Why**: Some concern areas need dedicated deep focus that broad vector-scan agents deprioritize. When recon detects specific code patterns (flags), a niche agent spawns as an independent agent focused ENTIRELY on that concern.
-
-| Niche Agent | Trigger Flag | Mode Required | Deep Methodology |
-|-------------|-------------|---------------|-----------------|
-| **Event Completeness** | >15 events detected OR setter without emit | standard+ | Event emission coverage, parameter accuracy, missing event for state changes |
-| **Semantic Gap Investigator** | Sync gaps ≥1 OR accumulation exposures ≥1 (from Phase 3.H) | deep+ | Investigates SYNC_GAP, ACCUMULATION_EXPOSURE flags to conclusion |
-| **Spec Compliance Auditor** | Documentation/spec files present in project | deep+ | Extracts testable doc claims, verifies each against code, reports mismatches |
-| **Signature Verification** | ecrecover/ECDSA.recover/permit/EIP712/domainSeparator detected | standard+ | Replay, malleability, EIP-712 domain, permit front-run, nonce management, cross-chain replay |
-| **Semantic Consistency** | 2+ contracts sharing parameters or formulas | deep+ | Config variable unit mismatches, formula semantic drift, magic number consistency |
-
-**Niche Agent Protocol**:
-1. Recon detects trigger flag and logs recommendation
-2. Niche agent spawns as independent agent in Phase 4 alongside depth specialists
-3. Each niche agent costs 1 depth budget slot
-4. Output written to dedicated file: `niche_{name}_findings.md`
-5. Findings merged with main pipeline in Turn 4
-
-**When to Use**: Niche agents vs injectable skills = **depth vs breadth**. Injectable skills add protocol methodology to many agents (broad enrichment). Niche agents spawn one dedicated agent for one deep concern (focused depth).
-
-**Multi-Expert Protocol** *(UPGRADED)*:
-1. **Round 1** (Agents 1-6): Independent parallel analysis — each agent analyzes from its own persona with its assigned vectors and focus area. **NO cross-agent communication.** Chain-specific agents load their `chain-deep-*.md` reference.
-2. **Round 2** (Agents 7-8-13): Independent adversarial review of the ENTIRE codebase. Agent 7 performs **oversight analysis** of Agents 1-6 findings. Agent 8 applies protocol-type-specific deep analysis with domain checklists. Agent 13 verifies critical path coverage. After completing their own analysis:
-   - Does it disagree with any finding? Why?
-   - Did it miss anything that Agents 1-6 found? Why?
-   - Would it have caught it with a different approach?
-3. **Round 3** (Triager merge): All findings merged, 6-check FP Gate applied, then economic triager validation (Phase 4.5). Expert attribution logged for every finding.
-4. **Round 4** (beast only — Agents 10-12): Nemesis convergence + variant hunting + cross-chunk chains.
-
-### Turn 3 — Spawn
-Spawn applicable agents as parallel foreground calls based on mode:
-- **Quick**: Agents 1-4 only
-- **Standard**: Agents 1-5 + Agent 7 (adversarial)
-- **Deep**: Agents 1-9 + Agent 13 (all except Feynman/Variant/Cross-Chain)
-- **Beast**: All 13 agents
-
-**Each agent prompt includes its persona description and the instruction to work independently.**
-
-### Turn 4 — Merge & Triager Round
-Deduplicate by root cause (keep higher-confidence version). Sort by confidence highest-first. Apply FP Gate (3-check for quick, 6-check for standard+) to ALL findings. Then apply **economic triager validation** (Phase 4.5) to all surviving findings (standard+ modes). Agent 7's oversight analysis feeds into the merge — if Agent 7 disagrees with a finding, it enters the triager round with reduced confidence. Produce final report.
-
-### Turn 5 — Nemesis Loop (beast only)
-After Turn 4 merge, run Nemesis Convergence Loop using Agents 9 (State Inspector) and 10 (Feynman Questioner) alternating until convergence. Agent 11 (Variant Hunter) systematically searches for all variants of confirmed findings. Agent 12 (Cross-Chain Integrator) runs cross-chunk attack chain analysis. Merge new findings with Turn 4 results. Apply FP Gate + triager validation. Produce final report.
-
-## When to Use
-- Full security audit of any smart contract on any blockchain
-- Contest warm-up and triage
-- Pre-deployment security review
-- Protocol upgrade security assessment
-- DeFi protocol deep-dive with economic modeling
-
-## When NOT to Use
-- Pure gas optimization (use solskill instead)
-- Writing new contracts (use solskill for dev standards)
-- Single-file quick lint (use Slither/Aderyn directly)
-
-## Rationalizations to Reject
-- ❌ "This pattern looks fine because OpenZeppelin uses it" — OZ has bugs too, verify the specific version
-- ❌ "This is just a Low, not worth investigating" — Lows cascade into Highs via cross-function interactions
-- ❌ "The admin would never do that" — P5 says ignore admin malice, but DO check admin error scenarios
-- ❌ "This only works with fee-on-transfer tokens, unlikely" — If the code accepts arbitrary ERC20s, it MUST handle them
-- ❌ "I've already checked reentrancy" — Check cross-contract, read-only, ERC-777/721 callback, and transient storage reentrancy too
-- ❌ "The fuzzer didn't find it so it's safe" — Fuzzers explore randomly; manual reasoning catches logic bugs
-- ❌ "Similar findings were reported as invalid elsewhere" — Check 6 only considers matching context; different codebase = fresh analysis
-- ❌ "It passed the 3-check gate so it's confirmed" — VeerSkills uses a 6-check gate; 3 checks is insufficient
-- ❌ "The codebase is too large to split" — Context overflow causes silent misses. Overlap Chunking + Bridge Agent handles this automatically
-- ❌ "The chunks are independent, no cross-chunk bugs" — Cross-chunk state manipulation is the #1 blind spot. Bridge Agent Hunt 1-3 exists precisely for this. NEVER skip it on >5k line codebases
-- ❌ "Context budget eviction will miss bugs" — Evicted files are lower-priority duplicates. The 3 core files (attack-vectors, fp-gate, master-checklist) are NEVER evicted. Silent misses from context overflow are far worse than losing template files
-- ❌ "Business context doesn't matter for technical audits" — TVL/user profile determines severity calibration and attack incentives
-- ❌ "Threat modeling is overhead" — Without it, agents hunt blindly instead of targeting protocol-specific threats
-
-## Generic Security Rules *(NEW — from Plamen's 17-rule universal methodology)*
-
-> **These rules apply to ALL smart contracts regardless of type or chain.** They encode HOW to systematically analyze, not WHAT to find. Every agent MUST reference these rules during analysis.
-
-### Rule 1: External Call Return Type Verification
-For every external call returning tokens, trace what token the external contract ACTUALLY returns in production. Check for: Legacy vs upgraded (V1→V2), Native vs wrapped (ETH/WETH), Bridged vs canonical, Different decimals (USDC-6 vs DAI-18).
-
-### Rule 2: Griefable Preconditions
-For every function with a precondition based on externally-manipulable state, check if external actors can manipulate the state to force the precondition to fail/succeed. Check: direct user action, flash-loan-assisted manipulation, donation (unsolicited transfer). Also check admin setters that modify parameters used in user-facing preconditions.
-
-### Rule 3: Transfer Side Effects
-For every `transfer()`/`transferFrom()` to/from external tokens, check: Does it claim pending rewards? Update internal accounting? Trigger rebase? Call receiver hook? Applies especially to: yield-bearing tokens (stETH, aTokens), rebasing tokens (OHM, AMPL), tokens with hooks (ERC777, ERC1363).
-
-### Rule 4: Uncertainty → CONTESTED (not REFUTED)
-When evidence is mixed, default to CONTESTED (not REFUTED). CONTESTED triggers production verification. Assume ADVERSARIAL behavior for unknown external contracts. Cannot downgrade CONTESTED to REFUTED without `[CODE]+` evidence.
-
-### Rule 5: Combinatorial Impact
-When protocol manages N similar entities (validators, pools, vaults), analyze: single-entity impact × N × time. If N × dust > withdrawal threshold → flag as griefing vector.
-
-### Rule 6: Semi-Trusted Role Bidirectional Analysis
-For automated roles (keepers, bots), analyze BOTH directions: How can ROLE harm USERS? AND how can USERS exploit ROLE? Both are equally important.
-
-### Rule 7: Donation-Based DoS
-For every operational threshold, check if external donations can manipulate it. Also check counter-based gates: can zero-value entries satisfy count requirements while undermining the guarded computation?
-
-### Rule 8: Cached Parameters in Multi-Step Operations
-For multi-step operations (request→wait→claim) AND snapshot storage of external state, verify all cached state remains valid at each consumption point. Check epoch staleness, rate staleness, delay manipulation, external state staleness.
-
-### Rule 9: Stranded Asset Severity Floor
-Assets with no exit path after upgrade/migration/state change → minimum MEDIUM. No recovery path AND >$10K → minimum HIGH.
-
-### Rule 10: Worst-State Severity Calibration
-Assess severity at worst REALISTIC operational state, not current on-chain snapshot. If protocol can hold 0-MAX tokens → assess at realistic peak TVL.
-
-### Rule 11: Unsolicited Token Transfer Impact
-5-dimension analysis for each external token: Transferability → Accounting impact → Operation blocking → Loop iteration → Side effects. Apply to ALL tokens the protocol interacts with, not just the primary token.
-
-### Rule 12: Exhaustive Enabler Enumeration
-For every dangerous precondition state, enumerate ALL paths using 5 actor categories: external attacker, semi-trusted role, natural operation, external event, user action sequence. Missing reachable paths = new findings.
-
-### Rule 13: User Impact Evaluation (Anti-Normalization)
-Before marking behavior as "by design": Who is harmed? Can they avoid it? Is it documented? Could protocol achieve the same goal without harm? Does the function fulfill its stated purpose completely?
-
-### Rule 14: Cross-Variable Invariant Verification
-For aggregate variables (total, count, sum), verify ALL modification paths for both aggregate AND components. If any path modifies one without the other → FINDING. Check setter regression: can new value be set BELOW accumulated state?
-
-### Rule 15: Flash Loan Precondition Manipulation
-For every balance/oracle/threshold/rate precondition, model: BORROW→MANIPULATE→CALL→EXTRACT→RESTORE→REPAY. If profit > 0 → FINDING.
-
-### Rule 16: Oracle Integrity
-For every oracle consumption point: check staleness, decimals, zero return, negative, round completeness, sequencer (L2), TWAP window vs liquidity, fallback on revert, config bounds with meaningful min/max.
-
-### Rule 17: State Transition Completeness
-For symmetric operations (deposit/withdraw, mint/burn, stake/unstake): ALL state fields modified in the positive branch must also be modified in the negative branch. Branch size asymmetry >3× is a review trigger.
+### Audit Trace Summary (MANDATORY in final report)
+```
+## Audit Trace Summary
+- Total Agents: {N}
+- Vectors Covered: {N} / 280+
+- Tool Calls: {N} (MCP + CLI)
+- Triager Validations: {N}
+- Skeptic-Judge Reviews: {N}
+- PoC Attempted: {N}
+- PoC Successful: {N}
+- Invariant Violations: {N}
+- Coverage: {components analyzed} / {total components}
+- Agent Expert Attribution: Agent N (Role) — {count} findings, {categories}
+```
 
 ---
 
-## Post-Audit Improvement Protocol *(NEW — from Plamen)*
+## Audit Meta-Analysis & Improvement Loop
 
-> **When**: After audit completes AND ground-truth report exists for comparison.
-> **Goal**: Identify gaps, classify root causes, prevent regression and bloat.
-
-### Compare Mode
-When a ground-truth report is available, generate a Finding Alignment Matrix:
-- **MATCHED**: VeerSkills found it (record severity accuracy)
-- **MISSED**: VeerSkills didn't find it (classify root cause)
-- **PARTIAL**: VeerSkills found it but at wrong severity
-- **EXTRA**: VeerSkills found it but ground truth didn't (potential FP)
-
-Compute: Recall = (matched + partial) / total GT. Precision = (matched + partial) / total VeerSkills.
-
-### Root Cause Classification (per missed finding)
-| Code | Root Cause | Fix Strategy |
-|------|-----------|-------------|
-| **RC-SCOPE** | File/function not analyzed by any agent | Recon improvements |
-| **RC-METHOD** | No rule/skill covers this vuln class | New rule or injectable skill |
-| **RC-DEPTH** | Correct area analyzed but too shallow | Adjust depth directive |
-| **RC-CONTEXT** | Lacked domain knowledge | Recon doc ingestion improvements |
-| **RC-NOVEL** | Unprecedented vulnerability class | RAG entry only |
-| **RC-AGENT** | Agent had methodology but made reasoning mistake | **NO PIPELINE CHANGE** |
-
-**RC-AGENT Presumption** *(critical anti-bloat gate from Plamen)*: Before classifying ANY miss as RC-METHOD/DEPTH/CONTEXT, verify: (1) grep all existing rules for relevant keywords — if coverage exists, it's RC-AGENT, (2) check if agent analyzed the area — if yes but wrong conclusion, it's RC-AGENT, (3) state the missing methodology without referencing the specific finding — if you can't, it's RC-AGENT.
-
-### Anti-Bloat Gates
-Before any pipeline change:
-1. **Line budget**: No file exceeds its cap after change
-2. **Duplication**: Change is in the most shared location possible
-3. **Marginal value**: Methodology-level fix, not pattern-level
-4. **Overlap**: No >60% overlap with existing checks
-
-### Injectable-First Architecture
-New methodology should be **injectable** (loaded conditionally) rather than **always-on**. Injectable if: applies to specific protocol type, adds >10 lines, irrelevant for >50% of audits. Always-on if: applies universally, ≤5 lines, high cost of missing.
+See `references/phase-7-report.md` for complete audit meta-analysis methodology including:
+- Ground Truth Comparison Framework
+- Root Cause Classification (RC-SCOPE, RC-METHOD, RC-DEPTH, RC-CONTEXT, RC-NOVEL, RC-AGENT)
+- Anti-Bloat Gates
+- Injectable-First Architecture
 
 ---
 

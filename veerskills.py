@@ -13,7 +13,7 @@ def ensure_claude_cli():
     """Ensure the claude CLI is installed."""
     if not shutil.which("claude"):
         print("Error: The 'claude' CLI tool is not installed or not in PATH.")
-        print("Install it via npm: npm install -g @anthropic-ai/claude-code")
+        print("Install it via npm: npm i -g @anthropic-ai/claude-code")
         sys.exit(1)
 
 def main():

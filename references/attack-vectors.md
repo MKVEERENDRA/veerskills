@@ -2,6 +2,17 @@
 
 _280 attack vectors with Detection (D) and False-Positive (FP) markers. Sourced from real audit findings across Code4rena, Sherlock, Cyfrin, and 20+ platforms. V171-V210: Extended EVM from solidity-auditor-skills. V211-V255: Chain-specific vectors (see chain-deep-*.md for deep methodology). V256-V280: Permit2, V4 Hooks, AA, Composability (2024-2026 findings)._
 
+## Table of Contents
+
+- [How to Use](#how-to-use)
+- [Agent 1: Reentrancy + Access Control + Proxy/Upgrade (V1–V42)](#agent-1-vectors-v1v42-reentrancy--access-control--proxyupgrade)
+- [Agent 2: Arithmetic + Oracle + Token Standards (V43–V84)](#agent-2-vectors-v43v84-arithmetic--oracle--token-standards)
+- [Agent 3: DoS + Economic + Flash Loan + Cross-Chain (V85–V126)](#agent-3-vectors-v85v126-dos--economic--flash-loan--cross-chain)
+- [Agent 4: Signature + Encoding + Assembly + Protocol-Specific (V127–V170)](#agent-4-vectors-v127v170-signature--encoding--assembly--protocol-specific)
+- [Agent 5: Extended EVM — DeFi, L2, Staking (V171–V210)](#agent-5-vectors-v171v210-extended-evm--defi-lending-l2-staking-behavioral)
+- [Agent 6: Chain-Specific — Solana/Move/TON/Cosmos/Cairo (V211–V255)](#agent-6-vectors-v211v255-chain-specific--solana--move--ton--cosmos--cairo)
+- [Agent 7: Extended — Permit2, Hooks, AA, Composability (V256–V280)](#agent-7-vectors-v256v280-extended--permit2-hooks-aa-composability)
+
 ## How to Use
 
 Each agent is assigned a vector range. During the **HUNT** phase:

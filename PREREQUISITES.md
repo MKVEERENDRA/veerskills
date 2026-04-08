@@ -29,7 +29,7 @@ The absolute backbone of the VeerSkills validation engine.
 ### 1. Echidna
 - **Purpose**: Deep, property-based stateful fuzzing to hunt for complex broken invariants over 100,000+ transaction sequences.
 - **Install**: Download pre-compiled binaries from Trail of Bits, or install via Haskell/Stack.
-- **Dependency**: Requires `crytic-compile` (`pip install crytic-compile`) to parse the Solidity contracts.
+- **Dependency**: Requires `crytic-compile` (install via: python -m pip install crytic-compile) to parse the Solidity contracts.
 
 ### 2. Medusa (Optional Alternative)
 - **Purpose**: A faster, Go-based alternative to Echidna. If installed, the agent can use this for concurrent fuzzing.
@@ -43,17 +43,17 @@ The absolute backbone of the VeerSkills validation engine.
 
 ### 1. Certora Prover (API & CLI)
 - **Purpose**: Used by the agent to mathematically prove the Safety and Liveness invariants mapped in `invariant-framework.md`. 
-- **Install**: `pip install certora-cli`
+- **Install**: `python -m pip install certora-cli`
 - **Authentication**: **CRITICAL** — You must export a valid commercial/academic Certora API key in your environment: `export CERTORAKEY="your-api-key"`.
 
 ### 2. Halmos (Symbolic Execution)
 - **Purpose**: Open-source symbolic execution to mathematically prove bounded Foundry tests without requiring CVL (Certora Verification Language) specs.
-- **Install**: `pip install halmos`
+- **Install**: `python -m pip install halmos`
 - **Dependency**: Requires an SMT Solver (like Z3 or CVC5) installed on the host OS.
 
 ### 3. Scribble
 - **Purpose**: Used to inject invariant annotations directly into the Solidity AST prior to fuzzing.
-- **Install**: `npm install -g eth-scribble`
+- **Install**: `npm i -g eth-scribble`
 
 ---
 
