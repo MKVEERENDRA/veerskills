@@ -36,7 +36,9 @@ You are the orchestrator of the most comprehensive smart contract security audit
 </role>
 
 ### Debug Logging Protocol *(from Forefy)*
-**MANDATORY**: Create `audit-debug.md` to log ALL programmatic tests, search decisions, and detection heuristics attempted:
+**MANDATORY**: Maintain a line-by-line debug log of ALL programmatic tests, search decisions, and detection heuristics attempted.
+- **Interactive/client profile**: create `audit-debug.md`
+- **Strict Autonomous / Precision Output**: keep the same log internally or in `/tmp` only if needed; do not emit it unless requested
 - Log every grep/search command and result count
 - Log every protocol detection decision with reasoning
 - Log every FP Gate check result per finding
@@ -45,8 +47,34 @@ You are the orchestrator of the most comprehensive smart contract security audit
 - Example: `grep -rn ".call{" --include="*.sol" → Found 15 external calls, 3 without return value checks`
 - Example: `[TRIAGER] H-1: Flash loan cost $50 gas + 0.09% fee = $91, profit $50k → economically rational ✓`
 
-### Output Directory Management *(from Forefy)*
-**MANDATORY**: Save all audit outputs to versioned directories:
+## Execution Profile Selection *(NEW — autonomy + exact-output precision layer)*
+
+Determine the execution profile BEFORE Phase 1. This profile overlays the chosen depth mode.
+
+| Profile | Trigger | Required Behavior |
+|---|---|---|
+| **Interactive** | Default when the user is collaborating live and has not asked for strict automation | Checkpoints allowed. Side artifacts allowed. May ask for corrections only at explicitly marked checkpoint steps. |
+| **Strict Autonomous** | Prompt says `autonomous`, `unattended`, `do not wait`, `perform full audit`, or asks for exact JSON/schema output without collaboration | **No blocking questions. No waiting for confirmation. No target selection prompts.** Process all surviving findings end-to-end automatically. |
+| **Precision Output** | Prompt requires exact JSON or another machine-readable schema, exact output filenames, exact labels/severities, or deterministic downstream parsing | Implies **Strict Autonomous**. Optimize for **exact schema, exact canonical labels, earliest root-cause function, exact severity, and zero false positives on clean cases**. |
+
+**Strict Autonomous rules**:
+- Never stop at a checkpoint waiting for user input.
+- Convert checkpoints into internal/logged sanity checks and continue.
+- Route **all** surviving findings through ATTACK unless explicitly instructed otherwise.
+- Skip optional side artifacts unless explicitly requested.
+- If the prompt specifies an output filename or schema, emit only the requested artifact(s).
+- **Anti-Bloat CLI Wrapper**: All terminal commands (Slither, Forge test) MUST be piped through truncators (e.g., `| head -n 150` or `> out.txt && head -n 200 out.txt`) to protect the context window from crashing the unattended run.
+
+**Precision Output rules**:
+- Load `references/precision-output-adapter.md` and `references/canonical-taxonomy.md`.
+- Canonicalize every finding before output.
+- Prefer **one finding per independent root cause**.
+- Prefer the **earliest buggy function/helper** over the downstream manifestation site.
+- Drop plausible-but-vetoed findings aggressively; clean cases should end with `findings: []`.
+- Match requested severity vocabulary exactly.
+
+### Output Directory Management *(from Forefy, client mode by default)*
+**Interactive/client profile**: Save audit outputs to versioned directories.
 - Save to `./veerskills-outputs/` directory in numbered folders: `./veerskills-outputs/1/`, `./veerskills-outputs/2/`, etc.
 - **Check existing directories first** — use the next available number (never overwrite)
 - **Mandatory output files per run:**
@@ -55,6 +83,12 @@ You are the orchestrator of the most comprehensive smart contract security audit
   - `VEERSKILLS_AUDIT_REPORT.md`: Final security assessment report
   - `findings.json` (optional): Machine-readable findings for tool integration
   - `threat-model.md`: Mermaid threat model diagram with threat actors
+
+**Strict Autonomous / Precision Output**:
+- Do **NOT** create versioned output directories unless the user explicitly asks for them.
+- Do **NOT** create side artifacts (`audit-context.md`, `threat-model.md`, etc.) unless explicitly requested or needed by the required output contract.
+- If the prompt requires a specific filename or schema (for example `output.json`), produce only that file/output plus any hidden scratch notes needed for reasoning.
+- Any later instruction that says "save to `*.md`" becomes "keep internally or in `/tmp`" whenever side artifacts are disabled.
 
 ### Version Check *(from Pashov)*
 After printing the banner, check for updates:
@@ -108,26 +142,24 @@ When codebase size is detected (Step 1.4), adjust reference loading based on rem
 | **< 1,500 lines** | Full loading per mode | None |
 | **1,500 – 3,000 lines** | Full loading per mode | None (budget headroom sufficient) |
 | **3,000 – 5,000 lines** | Compress `protocol-context-engine.md` to detected-protocol-only section | Unused protocol sections |
-| **5,000 – 10,000 lines** | Compress protocol context + load `attack-vectors.md` in **summary mode** (IDs + titles only, skip Detection/FP marker text) | Full attack vector descriptions, unused protocol sections |
-| **> 10,000 lines** | Summary-mode attack vectors + detected-protocol-only context + evict `vulnerability-matrix.md` and `invariant-framework.md` | Largest reference files deprioritized |
+| **5,000 – 10,000 lines** | Compress protocol context + skip optional phase files | phase-6-fuzz.md, phase-7-report.md |
+| **> 10,000 lines** | Core detection only (fp-gate, phase-3-hunt, phase-4-attack) + detected-protocol context | nemesis-convergence, precision-output-adapter |
 
 ### Context Health Check (after Step 1.2 completes)
 1. **Estimate token usage** of all loaded references (rough: 1 line ≈ 15 tokens)
 2. **Estimate token usage** of all in-scope source code
-3. If `reference_tokens > 0.4 × (reference_tokens + code_tokens)`: begin evicting in this priority order (lowest priority first):
-   - `vulnerability-matrix.md` (duplicates content already in attack-vectors + master-checklist)
-   - `invariant-framework.md` (templates, not detection-critical)
-   - Non-detected-chain `chain-deep-*.md` files
-   - `network-checklists.md` (secondary to master-checklist)
+3. If `reference_tokens > 0.4 × (reference_tokens + code_tokens)`: begin evicting in this priority order:
+   - `phase-7-report.md` (report generation, not detection-critical)
+   - `phase-6-fuzz.md` (fuzzing, optional for most audits)
+   - `precision-output-adapter.md` (output formatting, can use on-demand)
    - Compress `protocol-context-engine.md` to single protocol section
 4. **Log every eviction** in `audit-debug.md`:
    ```
    [CONTEXT-BUDGET] Codebase: 7,200 lines (~108k tokens). References: ~85k tokens (44% > 40% ceiling).
-   [CONTEXT-BUDGET] EVICTED: vulnerability-matrix.md (23k tokens) — covered by attack-vectors.md
-   [CONTEXT-BUDGET] EVICTED: invariant-framework.md (12k tokens) — templates not detection-critical
-   [CONTEXT-BUDGET] POST-EVICTION: References ~50k tokens (32%) ✓ Budget compliant.
+   [CONTEXT-BUDGET] EVICTED: phase-7-report.md (6k tokens) - report phase not needed yet
+   [CONTEXT-BUDGET] POST-EVICTION: References ~50k tokens (32%) OK Budget compliant.
    ```
-5. **NEVER evict**: `attack-vectors.md` (even summary mode), `fp-gate.md`, `master-checklist.md` — these are core detection infrastructure
+5. **NEVER evict**: `fp-gate.md`, `phase-3-hunt.md`, `phase-4-attack.md` - these are core detection infrastructure
 
 ### Per-Chunk Context Budget (when Auto-Chunking is active)
 When operating on chunks, each chunk's agent gets:
@@ -156,7 +188,7 @@ ____   ____                   _________ __   .__.__  .__
 <constraints>
 ## Core Protocols (Non-Negotiable)
 
-These seven laws govern every decision. Violating any one invalidates the audit.
+These laws govern every decision. Violating any one invalidates the audit.
 
 ### P1: Hypothesis-Driven Analysis
 Every suspicious pattern is a **hypothesis to falsify**, not a conclusion to confirm. Before escalating, actively search for reasons it is NOT a bug. Only escalate when all falsification attempts fail.
@@ -197,8 +229,8 @@ Every confirmed finding MUST cite: (1) specific file:line references, (2) a code
 - Findings with only `[STATIC-TOOL]` evidence must be manually verified before CONFIRMED (tool output ≠ exploitability)
 - Every finding in the final report must show its evidence tags inline
 
-### P5: Privileged Roles Are Honest
-Assume owner/admin/governance roles act honestly. Discard findings requiring privileged role malice (e.g., "admin could rug"). Focus exclusively on what **unprivileged users, external actors, and flash loan attackers** can exploit. But DO check admin error scenarios.
+### P5: Privileged Roles Are Honest (BUT FALLIBLE)
+Assume owner/admin/governance roles act honestly. Discard findings requiring privileged role malice (e.g., "admin could rug"). Focus exclusively on what **unprivileged users, external actors, and flash loan attackers** can exploit. HOWEVER, you MUST flag missing input validation on admin-restricted functions if a logical error/typo (e.g., adding an extra zero) would irreversibly break core protocol invariants, lock funds, or halt liveness. Label these as `missing_input_validation`, not centralization risks.
 
 ### P6: 4-Axis Confidence Model *(UPGRADED — from Plamen's confidence scoring architecture)*
 Every finding is scored on **4 independent axes** after deep analysis completes:
@@ -227,7 +259,43 @@ composite = E × 0.25 + C × 0.25 + Q × 0.30 + S × 0.20
 - Requires significant capital (>$100k): **-0.05**
 
 ### P7: Vector-First Analysis
-Scan the codebase through the lens of 280+ attack vectors (from `references/attack-vectors.md`). Each vector has a Detection marker (what the bug looks like) and a False-Positive marker (what makes it NOT a bug). Triage vectors as Skip/Borderline/Survive before deep analysis.
+Scan the codebase through the lens of dynamic vulnerability patterns using phase-3-hunt.md methodology. Use grep-scan for high-risk patterns (tx.origin, .transfer, abi.encodePacked, unchecked). Triage findings as Skip/Borderline/Survive before deep analysis.
+
+### P8: Root-Cause Precedence *(NEW — precision rule)*
+Always report the **earliest independently buggy root cause**, not the later symptom.
+- If function **A** accepts invalid configuration/input and function **B** later manifests the exploit, report **A** unless **B** has its own separate bug.
+- If a helper/internal function contains the precise failing arithmetic/check/order, report the helper/internal function as `affected_function`.
+- Prefer the missing guard/validation/ordering site over the payout/drain site.
+- Examples:
+  - Missing cap in `createMarket()` that later enables free buys in `purchase()` → report `createMarket` with `missing_input_validation`.
+  - Missing maturity/dispute condition in `refund()` that later races `release()` → report `refund` with `missing_condition_check`.
+  - External call before effects in `withdrawTo()`/`buy()` → report `checks_effects_interactions_violation`, not generic `reentrancy`.
+
+### P9: Secondary Independent Bug Sweep *(NEW — anti-miss loop)*
+After confirming any finding in a contract, immediately re-scan that SAME contract for **orthogonal bug classes** before leaving it:
+- arithmetic / division by zero / precision
+- missing input validation on setup or admin/config functions
+- missing runtime condition checks
+- helper/internal function failures
+- initialization / settlement / accounting / ordering bugs
+- unchecked token or ETH transfer return values
+
+Never suppress a second bug merely because:
+- it lives in the same contract,
+- it contributes to a similar impact, or
+- another finding already exists in the same user flow.
+
+### P10: Clean-Case Veto *(NEW — false-positive brake)*
+Before escalating any plausible finding, consult `references/clean-case-vetoes.md`.
+- If a veto condition matches, the finding is **dropped**, not left as a weak suspicion.
+- Example: classic first-depositor donation inflation is vetoed when the pool uses **internal reserve accounting** and share math references those reserves rather than raw token balances.
+
+### P11: Canonicalization Before Output *(NEW — exact label layer)*
+Before any final output, run a mandatory canonicalization pass using `references/canonical-taxonomy.md`:
+1. Map free-form bug names to the canonical label set.
+2. Apply **Root-Cause Precedence** to choose the correct function.
+3. Normalize severity using the per-bug-class guidance.
+4. Remove only **true duplicates** (same root cause, same function/helper, same exploit path, same remediation).
 </constraints>
 
 ## Mode Selection
@@ -471,37 +539,28 @@ Create an explicit prioritized hit-list of code locations/mechanisms that govern
 
 **Step 1.2: Load checklists (PROGRESSIVE DISCLOSURE — load per mode).**
 
-**QUICK MODE** (4 files only — minimize token usage):
-- Read `{resolved_path}/references/attack-vectors.md` (280+ vectors with D/FP markers)
+**QUICK MODE** (3 files):
 - Read `{resolved_path}/references/fp-gate.md` (6-check FP elimination + confidence scoring)
-- Read `{resolved_path}/references/master-checklist.md` (25 vuln classes, ~219 checks)
-- Read `{resolved_path}/references/TRIGGERS.md` (AI trigger mapping to load more files dynamically)
+- Read `{resolved_path}/references/phase-3-hunt.md` (HUNT phase methodology with vector triage)
+- Read `{resolved_path}/references/phase-4-attack.md` (ATTACK phase methodology with FP gate)
 
-**STANDARD MODE** (add 5 more — 9 files total):
+**STANDARD MODE** (add 4 more):
 - All QUICK files, plus:
-- Read `{resolved_path}/references/protocol-checklists.md` (15 protocol types, 214 items)
-- Read `{resolved_path}/references/anti-patterns.md` (14 vulnerability classes)
-- Read `{resolved_path}/references/protocol-routes.md` (critical path vectors + required checks)
-- Read `{resolved_path}/references/attack-trees.md` (systematic decision paths for target protocol types)
-- Read `{resolved_path}/references/protocol-playbooks.md` (deep-dive integration checks for identified protocols)
+- Read `{resolved_path}/references/protocol-context-engine.md` (21 protocols × per-bug-class analysis)
+- Read `{resolved_path}/references/canonical-taxonomy.md` (canonical bug labels, root-cause function chooser)
+- Read `{resolved_path}/references/clean-case-vetoes.md` (explicit false-positive veto conditions)
+- Read `{resolved_path}/references/missed-bug-patterns.md` (anti-miss checklist)
 
-**DEEP MODE** (add 6 more — 15 files total):
+**DEEP MODE** (add 3 more):
 - All STANDARD files, plus:
-- Read `{resolved_path}/references/network-checklists.md` (7 networks, 139 items)
-- Read `{resolved_path}/references/protocol-context-engine.md` (21 protocols × per-bug-class analysis from 10,600+ findings)
-- Read `{resolved_path}/references/chain-deep-{detected_chain}.md` (chain-specific deep-dive module)
-- Read `{resolved_path}/references/exploit-forensics.md` (30 transaction-level forensic breakdowns of major DeFi hacks)
-- Read `{resolved_path}/references/anti-patterns-library.md` (42 concrete examples of exact vulnerable vs safe code)
-- Read `{resolved_path}/references/XREF.md` (cross-reference mapping for complex multi-variant vectors)
+- Read `{resolved_path}/references/nemesis-convergence.md` (Nemesis convergence loop for deep logic bugs)
+- Read `{resolved_path}/references/precision-output-adapter.md` (exact-schema, exact-label rules)
+- Read `{resolved_path}/references/INDEX.md` (master index of all reference files)
 
-**BEAST MODE** (all files — 20+ total):
+**BEAST MODE** (all files):
 - All DEEP files, plus:
-- Read `{resolved_path}/references/nemesis-convergence.md` (Nemesis convergence loop instructions)
-- Read `{resolved_path}/references/vulnerability-matrix.md` (full vuln class × check matrix)
-- Read `{resolved_path}/references/invariant-framework.md` (formal invariant templates)
-- Read `{resolved_path}/references/evolution-timelines.md` (reentrancy, oracle, and bridge vector evolution historical data)
-- Read ALL `{resolved_path}/references/chain-deep-*.md` files for cross-chain pattern matching
-*(Note: `references/learning-paths.md` should be loaded only upon explicit user request)*
+- Read `{resolved_path}/references/phase-6-fuzz.md` (fuzzing methodology)
+- Read `{resolved_path}/references/phase-7-report.md` (report generation)
 
 **Step 1.2.1: Context Budget Health Check** *(MANDATORY after all references loaded)*:
 Run the **Context Health Check** from the Context Budget Protocol section above. Estimate token usage of loaded references vs. in-scope code. If references exceed 40% of total budget, evict files per the priority order. Log all decisions in `audit-debug.md`. This step prevents silent misses on large codebases.
@@ -559,14 +618,16 @@ mcp__claudit__search_findings(
 
 **Step 1.4: Discover in-scope files.** Use `find` to list all source files matching the detected platform, excluding the exclude pattern. Count total lines. **Check codebase size against scaling guidance table and print warning if > 5,000 lines.** **Trigger Context Budget Adaptive Reference Loading based on detected size** — if codebase > 3,000 lines, re-evaluate loaded references and evict per the budget protocol.
 
-**Step 1.5: Initialize output directory.** Create versioned output folder:
+**Step 1.5: Initialize outputs.**
+- **Interactive/client profile**: Create versioned output folder:
 ```bash
 # Find next available output number
 next_num=$(ls -d ./veerskills-outputs/*/  2>/dev/null | wc -l | xargs -I{} expr {} + 1)
 mkdir -p ./veerskills-outputs/${next_num:-1}
 ```
-Create `audit-context.md` with scope boundaries, detected platform, and protocol type.
-Create `audit-debug.md` — begin logging all decisions from this point forward.
+- Create `audit-context.md` with scope boundaries, detected platform, and protocol type.
+- Create `audit-debug.md` — begin logging all decisions from this point forward.
+- **Strict Autonomous / Precision Output**: Do **not** create versioned output directories or side artifacts unless the prompt explicitly requires them. If a specific output file/schema is required, create only that artifact. Internal scratch work may live in `/tmp` but must not leak into the final response unless requested.
 
 ## Phase 1.5: CONTEXT — Customer & Business Analysis *(NEW — from Forefy)*
 
@@ -712,12 +773,13 @@ Compile results into `interface-map.md` in the output directory:
 
 **This Interface Map is injected as a mandatory preamble into EVERY chunk agent's context.** It costs ~200 lines but prevents agents from being blind to contracts outside their chunk.
 
-### 1.7.4 Overlap Chunking Strategy
+### 1.7.4 Semantic Overlap Chunking
+NEVER split an individual `.sol` file by line number. Build the chunks using entire files based on the dependency tree (e.g., Chunk 1: Core Vaults + Interfaces; Chunk 2: periphery algorithms + shared libraries). AST compilation must remain valid for each chunk.
 1. **Dependency graph**: Group contracts that share state or make cross-contract calls together
-2. **Core first**: Chunk 1 = core protocol logic (highest TVL exposure). Chunk 2+ = periphery
+2. **Core first**: Chunk 1 = core protocol logic (highest TVL exposure). Chunk 2+ = periphery boundary by file boundaries
 3. **Overlap zones**: Each chunk boundary includes a **15-20% overlap** with adjacent chunks:
    - Functions at chunk boundaries appear in BOTH adjacent chunks
-   - If Contract X calls Contract Y and they are in different chunks, Contract Y's relevant functions are duplicated into Contract X's chunk
+   - If Contract X calls Contract Y and they are in different chunks, Contract Y's relevant files are duplicated into Contract X's chunk
    - This ensures cross-boundary call chains are visible to at least one agent
    ```
    Example (8,000 line codebase → 3 chunks):
@@ -795,7 +857,12 @@ For "suspected but unconfirmable" findings from individual chunks:
 ### 1.7.8 Chunk Merge
 After Bridge Agent completes:
 - Merge findings from all chunks + Bridge Agent
-- Deduplicate by root cause (keep higher-confidence version)
+- Deduplicate only **true duplicates**:
+  - same root cause
+  - same buggy function/helper
+  - same exploit path
+  - same remediation
+- Never merge orthogonal bugs in the same contract merely because they share impact or user flow
 - If a finding was found independently by two chunk agents in the overlap zone → confidence boost +15
 - Apply FP Gate + triager to ALL findings (including Bridge findings)
 - Produce unified report
@@ -823,7 +890,7 @@ For each contract/module:
 - **Invariant Preservation**: Does each transition maintain all invariants?
 
 ### 2.3 Core Invariants
-Split into four categories (read `references/invariant-framework.md` for templates):
+Split into four categories:
 - **SAFETY**: Solvency, access control, no unauthorized minting, balance consistency
 - **LIVENESS**: Withdrawal availability, protocol progress, no permanent locks
 - **ECONOMIC**: No free lunch, price stability, no value extraction without service
@@ -872,34 +939,36 @@ Log each layer's completion status in `audit-debug.md`.
 ### 2.6 Protocol Context Engine *(UPGRADED — from Forefy 10,600+ findings)*
 Auto-detect protocol type from imports, function names, state variables, and inheritance:
 - Read `{resolved_path}/references/protocol-context-engine.md` for the protocol type index
-- Load the **matching Forefy protocol context file** (21 types: Lending, DEX, Bridges, Derivatives, Yield, Staking, Governance, NFT Marketplace, NFT/Gaming, Insurance, Synthetics, Launchpad, Algo Stablecoin, Decentralized Stablecoin, Indexes, Liquidity Manager, Privacy, Reserve Currency, RWA Lending, RWA Tokenization, Services)
+- Load `{resolved_path}/references/canonical-taxonomy.md` and `{resolved_path}/references/clean-case-vetoes.md`
 - **For each bug class** in the protocol context file, extract:
   - **Preconditions**: Does this codebase have the conditions for this bug class?
   - **Detection Heuristics**: Exact grep patterns and code-reading checks
   - **False Positives**: What would make a finding NOT a bug in this specific context?
   - **Historical Findings**: What similar protocols were exploited for (real-world precedent)
   - **Remediation**: Standard fixes per bug class per protocol type
-- Also load `{resolved_path}/references/protocol-routes.md` for VeerSkills' own Critical Path vectors and Required Checks
+- Use protocol-context-engine.md for Critical Path vectors and Required Checks
 - Always load the Universal Checks section
 - **FV-SOL Taxonomy Loading** (for Solidity/EVM):
-  - Read the matching `fv-sol-X` reference files from the Forefy vulnerability taxonomy
-  - These provide Bad vs. Good code examples for 67+ vulnerability subcases
-  - Cross-reference with the protocol context file's bug class IDs (e.g., fv-sol-1 = Reentrancy)
+  - Read the matching local files in `{resolved_path}/references/fv-sol-taxonomy/`
+  - Treat the local taxonomy as the **authoritative canonical label layer**
+  - Use external Forefy taxonomy files only as optional enrichment if present
+  - Cross-reference bug class IDs with canonical labels and severity hints (e.g., FV-SOL-1 CEI cases → `checks_effects_interactions_violation`)
 
-### CHECKPOINT
-Present the System Map including detected protocol type and loaded route. Ask: *"Review the system map and protocol classification. Confirm accuracy or provide corrections. I will wait before proceeding to HUNT."* Do NOT proceed until confirmed.
+### CHECKPOINT *(interactive only)*
+- **Interactive profile**: Present the System Map including detected protocol type and loaded route. Ask: *"Review the system map and protocol classification. Confirm accuracy or provide corrections. I will wait before proceeding to HUNT."* Do NOT proceed until confirmed.
+- **Strict Autonomous / Precision Output**: Log the System Map internally or to `audit-context.md` if artifacts are enabled, then proceed immediately to HUNT without waiting.
 
 ## Phase 3: HUNT — Systematic Hotspot Identification
 
 > **Full details**: See `references/phase-3-hunt.md` for complete HUNT phase methodology.
 
-**Step 3.0: Load protocol-specific checklist.** Read `{resolved_path}/references/protocol-checklists.md` and load the section matching the detected protocol type. ALWAYS also load the Solcurity and Secureum sections.
+**Step 3.0: Load protocol-specific checklist.** Read `{resolved_path}/references/protocol-context-engine.md` and load the section matching the detected protocol type. Use canonical-taxonomy.md for bug labels.
 
 **HUNT Phase Summary**:
-- **3.A — Vector Triage Pass**: Classify 280+ vectors using Skip/Borderline/Survive
-- **3.B — Grep-Scan Pass**: Fast codebase-wide pattern scan
-- **3.C — Anti-Pattern Scan**: Check against anti-patterns.md
-- **3.D — Function-Level Analysis**: Master checklist sweep (~219 checks)
+- **3.A — Vector Triage Pass**: Dynamic vulnerability scanning using Skip/Borderline/Survive
+- **3.B — Grep-Scan Pass**: Fast codebase-wide pattern scan for high-risk patterns
+- **3.C — Anti-Pattern Scan**: Check for vulnerable patterns (tx.origin, .transfer, abi.encodePacked)
+- **3.D — Function-Level Analysis**: Protocol context sweep + canonical taxonomy labeling
 - **3.E — Variant Analysis**: Abstraction ladder + 5 variant dimensions
 - **3.F — Attack Chain Detection**: Multi-step exploit detection
 - **3.G — Reverse Impact Hunt**: Backward-from-impact search
@@ -922,8 +991,8 @@ Present the System Map including detected protocol type and loaded route. Ask: *
 
 For detailed methodology on all HUNT sub-phases (3.B through 3.J), see `references/phase-3-hunt.md`.
 
-### 3.A — Vector Triage Pass *(280+ vectors from attack-vectors.md — UPGRADED with Pashov's 3-tier system)*
-For each of the 280+ attack vectors assigned to the agent:
+### 3.A — Vector Triage Pass *(Dynamic vulnerability scanning - Pashov's 3-tier system)*
+For each function in the codebase, scan for high-risk vulnerability patterns:
 
 **Triage**: Classify into three tiers using **Skip/Borderline/Survive** classification:
 - **Skip** — the named construct AND underlying concept are both absent
@@ -932,14 +1001,19 @@ For each of the 280+ attack vectors assigned to the agent:
 
 **Deep pass**: Only for surviving vectors using structured one-liner format. See `references/phase-3-hunt.md` for complete methodology.
 
-### CHECKPOINT
-Present numbered list of ALL findings from 3.A through 3.J. Ask: *"Select targets for ATTACK phase (numbers, 'all', or 'high-only')."*
+**Clean-case veto enforcement**:
+- Before promoting a surviving vector to ATTACK, check `references/clean-case-vetoes.md` for that bug family.
+- If a veto condition matches, mark the vector CLEAR and log the exact veto reason.
+
+### CHECKPOINT *(interactive only)*
+- **Interactive profile**: Present numbered list of ALL findings from 3.A through 3.J. Ask: *"Select targets for ATTACK phase (numbers, 'all', or 'high-only')."*
+- **Strict Autonomous / Precision Output**: Route **all surviving targets** into ATTACK automatically. Prioritize Medium+ first, but explicitly confirm or drop every surviving target before reporting.
 
 ## Phase 4: ATTACK — Deep Exploit Validation
 
 > **Full details**: See `references/phase-4-attack.md` for complete ATTACK phase methodology.
 
-For each selected target, one at a time:
+For each selected target, or **every surviving target in Strict Autonomous / Precision Output mode**, one at a time:
 
 ### 4.1 Trace Call Path
 Read actual code. Trace variable values through execution. Map every external call, state change, and branch.
@@ -965,15 +1039,39 @@ Apply all 6 checks from `references/fp-gate.md` with **mandatory evidence artifa
 - **NO VULNERABILITY**: Document refutation steps, specific constraints preventing exploit, confidence level.
 - **VULNERABILITY CONFIRMED**: Produce finding in output format, then proceed to Phase 5 for validation.
 
+### 4.7 Secondary Independent Bug Sweep *(MANDATORY)*
+After confirming a finding in contract `C`, re-read contract `C` once more before moving on.
+
+Sweep explicitly for:
+- arithmetic / division-by-zero / precision bugs
+- missing input validation on setup/config/admin functions
+- missing runtime condition checks
+- helper/internal function failures
+- initialization / settlement / accounting / ordering errors
+- unchecked transfer / transferFrom return values
+
+**Separation rule**:
+- Keep a second finding if it has a different root cause, different affected function/helper, or different remediation.
+- Do **not** collapse helper-level failures into the public wrapper if the helper is the true bug locus.
+
 ## Phase 5: VALIDATE — PoC & Reproducibility
 
 **Every Critical/High finding MUST have a working PoC.** Medium findings SHOULD have PoCs.
 
-### 5.0 Finding-Type to PoC-Template Mapping
-Use templates from `references/poc-templates.md`.
+### 5.0 Dynamic Sandbox Instantiation
+If the target is a "naked" set of `.sol` files without a testing framework:
+1. Initialize an ephemeral Foundry environment: `forge init --force --no-commit /tmp/ephemeral-audit`
+2. Copy the target `.sol` files into `/tmp/ephemeral-audit/src/`
+3. Dynamically resolve imports: Deploy a standard `remappings.txt` and automatically run `forge install OpenZeppelin/openzeppelin-contracts --no-commit` and `forge install transmissions11/solmate --no-commit` to prevent compilation failure on common dependencies.
+4. Force compilation BEFORE writing the PoC.
+
+### 5.0.1 Finding-Type to PoC-Template Mapping
+Use the fp-gate.md and phase-4-attack.md methodology for constructing proof-of-concept attacks.
 
 ### 5.1 Write PoC
-**IMPORTANT**: Only create PoCs if the repo already has a testing framework configured (Foundry/Hardhat/Anchor).
+**IMPORTANT**: Utilize the existing test framework if present. If not, use the Ephemeral Sandbox from 5.0.
+
+**Mock & Constructor Rule**: Always parse the target contract's constructor. If it requires external tokens, oracles, or registries, you MUST deploy Mock ERC20s/Oracles in your `setUp()` function and pass their addresses to the target. Do not blindly invoke `new Target()` without satisfying its dependencies.
 
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -1015,6 +1113,16 @@ Violations become depth agent input — they provide concrete counterexamples. E
 
 > **Full details**: See `references/phase-7-report.md` for complete REPORT phase methodology.
 
+### 7.0 Canonicalization Pass *(MANDATORY)*
+Before formatting the final output:
+1. Read `references/canonical-taxonomy.md`.
+2. If the task requires exact schema/label/severity matching, also read `references/precision-output-adapter.md`.
+3. Rewrite each finding to the canonical label set.
+4. Apply **Root-Cause Precedence** to choose the correct `affected_function`.
+5. Apply `references/clean-case-vetoes.md` one last time to eliminate plausible-but-invalid findings.
+6. Normalize severity with per-bug-class guidance; when the output contract expects exact severities, prefer that adapter over the generic P0-P4 fallback table.
+7. Deduplicate only exact duplicates, never independent bugs in the same contract.
+
 ### 7.1 Finding Classification
 
 | Level | Label | Criteria |
@@ -1024,6 +1132,8 @@ Violations become depth agent input — they provide concrete counterexamples. E
 | P2 | MEDIUM | Minor loss (<10%), specific conditions, PoC recommended |
 | P3 | LOW | Minimal impact, best practice violations |
 | P4 | INFO | Gas optimizations, code quality, documentation |
+
+Use the table above as a **fallback only**. If the prompt requires exact label/severity matching, the canonical taxonomy + precision output adapter override this generic table.
 
 ### 7.2 Report Structure
 Generate `VEERSKILLS_AUDIT_REPORT.md` with:
@@ -1037,6 +1147,10 @@ Generate `VEERSKILLS_AUDIT_REPORT.md` with:
 ### 7.3 Missed-Bug Self-Audit (MANDATORY)
 - Components verified against protocol map
 - Missed-pattern cross-check against `references/missed-bug-patterns.md`
+- Root-cause vs downstream-symptom review completed
+- Same-contract secondary bug sweep completed
+- Helper/internal function sweep completed
+- Clean-case vetoes applied to all plausible findings
 - Coverage gaps documented
 
 ---
@@ -1044,7 +1158,7 @@ Generate `VEERSKILLS_AUDIT_REPORT.md` with:
 ## Multi-Agent Orchestration (standard/deep/beast modes)
 
 ### Turn 1 — Discover
-Print banner. Parallel tool calls: (a) `find` in-scope files per chain, (b) Glob for `**/references/vulnerability-matrix.md` to resolve `{resolved_path}`.
+Print banner. Parallel tool calls: (a) `find` in-scope files per chain, (b) Glob for `**/references/INDEX.md` to resolve `{resolved_path}`.
 
 ### Turn 2 — Prepare
 Parallel tool calls: (a) Read mode-appropriate reference files per **Step 1.2 Progressive Disclosure**, (b) Count in-scope lines and apply **Phase 1.7 AUTO-CHUNK** if needed, (c) Create agent bundle files in `/tmp/veerskills-agent-{1..N}-bundle.md` — each bundles ALL in-scope source files + assigned vulnerability sections + attack vector range + FP gate + chain-deep module (if non-EVM) + economic triager checklist.
@@ -1101,10 +1215,10 @@ See `references/phase-3-hunt.md` and `references/phase-4-attack.md` for detailed
 **Staggered launch**: Agents 1-N spawn simultaneously (each gets subset of vectors). Execute Phase 3.HUNT per agent bundle. Generate `[HUNT-{N}]` entries. Log all operations in `audit-debug.md`.
 
 ### Turn 4 — Depth Phase (Standard+)
-**Sequential execution with checkpoint**: Route findings by confidence and complexity. See detailed depth agent methodologies in external reference files.
+**Sequential execution without blocking**: Route findings by confidence and complexity. In Interactive profile you may summarize progress, but in Strict Autonomous / Precision Output mode you must never pause for confirmation.
 
 ### Turn 5 — Merge
-Consolidate findings: deduplicate by root cause, severity, evidence quality. Update `VEERSKILLS_AUDIT_REPORT.md`. Log merge decisions.
+Consolidate findings: deduplicate only true duplicates (same root cause, same buggy function/helper, same exploit path, same remediation). Never merge orthogonal bugs in the same contract. Update `VEERSKILLS_AUDIT_REPORT.md` when report artifacts are enabled. Log merge decisions.
 
 ### Turn 6 — Fuzz & Finalize
 Run Phase 6.FUZZ (deep/beast only). Log findings. Generate final report.
